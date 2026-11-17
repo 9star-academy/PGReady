@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/9star-academy/PGReady/internal/archive"
 	"github.com/9star-academy/PGReady/internal/cluster"
@@ -88,6 +89,9 @@ type app struct {
 	selected *cluster.Cluster
 	style    menuStyle
 	logoID   uint32
+
+	installCandidates      []host.Package
+	installCandidatesUntil time.Time
 }
 
 type menuItem struct {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/9star-academy/PGReady/internal/cluster"
 	"github.com/9star-academy/PGReady/internal/host"
@@ -113,11 +114,18 @@ func (a *app) listPackages() error {
 }
 
 func (a *app) installPackages() ([]host.Package, error) {
-	fmt.Fprintln(a.out, "正在查询 PostgreSQL 官方软件源…")
+	if time.Now().Before(a.installCandidatesUntil) {
+		return a.installCandidates, nil
+	}
+	fmt.Fprintln(a.out, "正在查询 PostgreSQL 软件源…")
 	packages, err := a.host.InstallPackages(a.ctx)
 	if err != nil && len(packages) != 0 {
 		fmt.Fprintf(a.errOut, "%v\n当前仅显示本机 APT 源中的可安装版本。\n", err)
 		return packages, nil
+	}
+	if err == nil {
+		a.installCandidates = packages
+		a.installCandidatesUntil = time.Now().Add(time.Minute)
 	}
 	return packages, err
 }
@@ -131,6 +139,7 @@ func (a *app) installPostgres() error {
 	if err != nil {
 		return err
 	}
+	a.installCandidatesUntil = time.Time{}
 	if err := a.host.Install(a.ctx, selected, a.out, a.errOut); err != nil {
 		return err
 	}
@@ -169,7 +178,7 @@ func (a *app) chooseInstallPackage(packages []host.Package) (host.Package, error
 		}
 		pkg := packages[choice-1]
 		if pkg.PGDG {
-			fmt.Fprintln(a.out, "使用 PostgreSQL 官方 PGDG 源。确认后将按需添加该源，以便后续通过 APT 更新。")
+			fmt.Fprintln(a.out, "使用 PostgreSQL PGDG 软件源。确认后将按需配置该源，以便通过 APT 更新。")
 		}
 		if err := a.confirm(fmt.Sprintf("确认通过 APT 安装 PostgreSQL %s（%s）？", pkg.Major, pkg.Candidate)); err != nil {
 			return host.Package{}, err

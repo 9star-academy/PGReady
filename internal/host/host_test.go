@@ -133,6 +133,87 @@ func TestClustersDistinguishesEmptyAndUnrecognized(t *testing.T) {
 	}
 }
 
+func TestClustersChecksPanelInstallationEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		files fstest.MapFS
+		want  []string
+	}{
+		{
+			name: "versions in both locations",
+			files: fstest.MapFS{
+				"www/server/pgsql/data/PG_VERSION": {Data: []byte("14\n")},
+				"www/server/data/pgsql/PG_VERSION": {Data: []byte("9.6\n")},
+			},
+			want: []string{`"/www/server/pgsql/data" 的 PostgreSQL 主版本为 14`, `"/www/server/data/pgsql" 的 PostgreSQL 主版本为 9.6`},
+		},
+		{
+			name:  "directory only",
+			files: fstest.MapFS{"www/server/pgsql": {Mode: fs.ModeDir}},
+		},
+		{
+			name:  "panel placeholder only",
+			files: fstest.MapFS{"www/server/pgsql/data_directory": {Data: []byte("/www/server/pgsql/data\n")}},
+		},
+		{
+			name:  "installed server binary",
+			files: fstest.MapFS{"www/server/pgsql/bin/postgres": {Mode: 0755}},
+			want:  []string{"/www/server/pgsql/bin/postgres"},
+		},
+		{
+			name:  "data without panel installation directory",
+			files: fstest.MapFS{"www/server/data/pgsql/global/pg_control": {}},
+			want:  []string{"/www/server/data/pgsql/global/pg_control"},
+		},
+		{
+			name: "data at configured path",
+			files: fstest.MapFS{
+				"www/server/pgsql/data_directory": {Data: []byte("/srv/postgres/data\n")},
+				"srv/postgres/data/PG_VERSION":    {Data: []byte("18\n")},
+			},
+			want: []string{`"/srv/postgres/data" 的 PostgreSQL 主版本为 18`},
+		},
+		{
+			name:  "invalid version",
+			files: fstest.MapFS{"www/server/pgsql/data/PG_VERSION": {Data: []byte("14\nunknown\n")}},
+			want:  []string{"/www/server/pgsql/data/PG_VERSION"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			files := testFS()
+			for name, file := range tc.files {
+				files[name] = file
+			}
+			s := Service{files: files, Runner: command.Func(func(_ context.Context, call command.Call) error {
+				switch call.Name {
+				case listTool:
+					return fs.ErrNotExist
+				case dpkg:
+					return output(call, "")
+				default:
+					t.Fatalf("unexpected command: %+v", call)
+					return nil
+				}
+			})}
+			got, err := s.Clusters(context.Background())
+			if len(tc.want) == 0 {
+				if len(got) != 0 || err != nil {
+					t.Fatalf("Clusters() = %+v, %v; want an empty inventory", got, err)
+				}
+				return
+			}
+			if len(got) != 0 || err == nil {
+				t.Fatalf("Clusters() = %+v, %v; want an unregistered installation diagnostic", got, err)
+			}
+			for _, want := range append(tc.want, "APT 首装已暂停") {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("Clusters() error = %v; want %q", err, want)
+				}
+			}
+		})
+	}
+}
+
 func TestControlRechecksSelectedInstanceAndScopesCommand(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -256,6 +337,7 @@ func TestInstallGuardsAndPartialSuccess(t *testing.T) {
 		name         string
 		unsafeOS     bool
 		existing     bool
+		panelFiles   fstest.MapFS
 		noCandidate  bool
 		newCandidate string
 		noCluster    bool
@@ -266,6 +348,8 @@ func TestInstallGuardsAndPartialSuccess(t *testing.T) {
 		{name: "success", wantInstall: true},
 		{name: "unsupported", unsafeOS: true, wantErr: `检测到 "debian 11"`},
 		{name: "existing registration", existing: true, wantErr: "已有"},
+		{name: "existing panel data", panelFiles: fstest.MapFS{"www/server/pgsql/data/PG_VERSION": {Data: []byte("16\n")}}, wantErr: "APT 首装已暂停"},
+		{name: "panel placeholder allows install", panelFiles: fstest.MapFS{"www/server/pgsql/data_directory": {Data: []byte("/www/server/pgsql/data\n")}}, wantInstall: true},
 		{name: "not available", noCandidate: true, wantErr: "apt-get update"},
 		{name: "candidate changed after selection", newCandidate: "16.8-1", wantErr: "候选版本已变为 16.8-1"},
 		{name: "apt failure", wantInstall: true, packageErr: installErr, wantErr: installErr.Error()},
@@ -275,6 +359,9 @@ func TestInstallGuardsAndPartialSuccess(t *testing.T) {
 			files := testFS()
 			if tc.unsafeOS {
 				files["etc/os-release"] = &fstest.MapFile{Data: []byte("ID=debian\nVERSION_ID=11\n")}
+			}
+			for name, file := range tc.panelFiles {
+				files[name] = file
 			}
 			installed := false
 			s := Service{files: files, Runner: command.Func(func(_ context.Context, c command.Call) error {

@@ -19,6 +19,8 @@ type Package struct {
 	Installed string
 	Candidate string
 	PGDG      bool
+
+	pgdgRepository string
 }
 
 var (
@@ -229,7 +231,7 @@ func (s Service) Install(ctx context.Context, selected Package, out, errOut io.W
 		return fmt.Errorf("本机已有 PostgreSQL 实例，首装功能仅适用于没有 PostgreSQL 的主机")
 	}
 	if selected.PGDG {
-		if err := s.enablePGDG(ctx, release.codename, out, errOut); err != nil {
+		if err := s.enablePGDG(ctx, release.codename, selected.pgdgRepository, out, errOut); err != nil {
 			return err
 		}
 	}

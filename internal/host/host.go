@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -21,6 +22,8 @@ type Service struct {
 	Runner command.Runner
 	files  fs.FS
 }
+
+const panelInstallDir = "www/server/pgsql"
 
 func (s Service) filesystem() fs.FS {
 	if s.files != nil {
@@ -110,10 +113,10 @@ func parseInventory(inventory string) ([]cluster.Cluster, error) {
 func (s Service) checkNoExistingServer(ctx context.Context) error {
 	files := s.filesystem()
 	// Probe conventionally installed servers and residual data outside of the
-	// postgresql-common registry, including the path used by the BT panel.
+	// postgresql-common registry.
 	for _, location := range []string{
 		"usr/bin/postgres", "usr/local/bin/postgres", "usr/local/pgsql",
-		"opt/pgsql", "www/server/pgsql", "var/lib/pgsql",
+		"opt/pgsql", "var/lib/pgsql",
 	} {
 		_, err := fs.Stat(files, location)
 		if err == nil {
@@ -122,6 +125,10 @@ func (s Service) checkNoExistingServer(ctx context.Context) error {
 		if !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("检查已有 PostgreSQL 文件: %w", err)
 		}
+	}
+
+	if err := checkPanelInstallation(files); err != nil {
+		return err
 	}
 
 	for _, root := range []string{"etc/postgresql", "var/lib/postgresql"} {
@@ -175,6 +182,68 @@ func (s Service) checkNoExistingServer(ctx context.Context) error {
 
 func unregistered(evidence string) error {
 	return fmt.Errorf("未找到已注册实例，但发现已有 PostgreSQL 痕迹 %q。请先确认其安装方式、数据目录和服务状态", evidence)
+}
+
+func checkPanelInstallation(files fs.FS) error {
+	dataDirs, err := panelDataDirectories(files)
+	if err != nil {
+		return err
+	}
+	markers := []string{panelInstallDir + "/bin/postgres", panelInstallDir + "/bin/postmaster"}
+	for _, dir := range dataDirs {
+		markers = append(markers, path.Join(dir, "PG_VERSION"), path.Join(dir, "global/pg_control"))
+	}
+
+	var evidence []string
+	for _, marker := range markers {
+		info, err := fs.Stat(files, marker)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("检查宝塔 PostgreSQL 路径 %q: %w", "/"+marker, err)
+		}
+		detail := fmt.Sprintf("发现 %q", "/"+marker)
+		if path.Base(marker) == "PG_VERSION" && info.Mode().IsRegular() && info.Size() <= 32 {
+			data, err := fs.ReadFile(files, marker)
+			version := strings.TrimSpace(string(data))
+			if err == nil && versionedPackage.MatchString("postgresql-"+version) {
+				detail = fmt.Sprintf("数据目录 %q 的 PostgreSQL 主版本为 %s", "/"+path.Dir(marker), version)
+			}
+		}
+		evidence = append(evidence, detail)
+	}
+	if len(evidence) == 0 {
+		return nil
+	}
+	return fmt.Errorf("未找到 APT 注册实例，但检测到宝塔 PostgreSQL 痕迹。%s。APT 首装已暂停。请核对数据目录和服务状态", strings.Join(evidence, "。"))
+}
+
+func panelDataDirectories(files fs.FS) ([]string, error) {
+	dirs := []string{panelInstallDir + "/data", "www/server/data/pgsql"}
+	const config = panelInstallDir + "/data_directory"
+	info, err := fs.Stat(files, config)
+	if errors.Is(err, fs.ErrNotExist) {
+		return dirs, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("检查宝塔 PostgreSQL 数据目录配置: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Size() > 4096 {
+		return dirs, nil
+	}
+	data, err := fs.ReadFile(files, config)
+	if err != nil {
+		return nil, fmt.Errorf("读取宝塔 PostgreSQL 数据目录配置: %w", err)
+	}
+	configured := strings.TrimSpace(string(data))
+	if path.IsAbs(configured) {
+		dir := strings.TrimPrefix(path.Clean(configured), "/")
+		if dir != "" && !slices.Contains(dirs, dir) {
+			dirs = append(dirs, dir)
+		}
+	}
+	return dirs, nil
 }
 
 func (s Service) Control(ctx context.Context, c cluster.Cluster, action string, out, errOut io.Writer) error {

@@ -16,9 +16,18 @@ import (
 )
 
 func TestInstallPackagesPreviewsOfficialStableVersions(t *testing.T) {
-	for _, offline := range []bool{false, true} {
-		t.Run(fmt.Sprint("offline=", offline), func(t *testing.T) {
-			var previewDir string
+	for _, tc := range []struct {
+		name, mode, first, selected string
+		offline, failFirst          bool
+	}{
+		{name: "official", mode: "auto", first: pgdgRepository, selected: pgdgRepository},
+		{name: "mirror after timeout", mode: "auto", first: pgdgRepository, selected: pgdgChinaRepository, failFirst: true},
+		{name: "mirror first in cn", mode: "cn", first: pgdgChinaRepository, selected: pgdgChinaRepository},
+		{name: "offline", mode: "auto", first: pgdgRepository, offline: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("PGREADY_DOWNLOAD_MODE", tc.mode)
+			var previewDirs []string
 			s := Service{files: testFS(), Runner: command.Func(func(_ context.Context, c command.Call) error {
 				if c.AsRoot {
 					t.Fatalf("version preview requested root: %+v", c)
@@ -33,8 +42,9 @@ func TestInstallPackagesPreviewsOfficialStableVersions(t *testing.T) {
 				case "/usr/bin/dpkg":
 					return output(c, "arm64\n")
 				case "/usr/bin/env":
-					previewDir = filepath.Dir(strings.TrimPrefix(c.Args[0], "APT_CONFIG="))
+					previewDir := filepath.Dir(strings.TrimPrefix(c.Args[0], "APT_CONFIG="))
 					if c.Args[1] == aptGet {
+						previewDirs = append(previewDirs, previewDir)
 						if _, err := os.Stat(filepath.Join(previewDir, "lists", "partial")); err != nil {
 							t.Fatalf("APT lists directory missing: %v", err)
 						}
@@ -42,8 +52,15 @@ func TestInstallPackagesPreviewsOfficialStableVersions(t *testing.T) {
 						if err != nil || !strings.Contains(string(source), "Suites: noble-pgdg\nArchitectures: arm64\nComponents: main\nSigned-By:\n -----BEGIN PGP PUBLIC KEY BLOCK-----\n .\n") {
 							t.Fatalf("invalid preview source: %s, %v", source, err)
 						}
-						if offline {
-							return errors.New("network unreachable")
+						repository := tc.first
+						if len(previewDirs) > 1 {
+							repository = pgdgChinaRepository
+						}
+						if !strings.Contains(string(source), "URIs: https://"+repository+"\n") {
+							t.Fatalf("preview did not use %s: %s", repository, source)
+						}
+						if tc.offline || (tc.failFirst && len(previewDirs) == 1) {
+							return context.DeadlineExceeded
 						}
 						return nil
 					}
@@ -66,14 +83,19 @@ func TestInstallPackagesPreviewsOfficialStableVersions(t *testing.T) {
 				{Major: "17", Candidate: "17.12-1.pgdg24.04+1", PGDG: true},
 				{Major: "16", Candidate: "16.16-1.pgdg24.04+1", PGDG: true},
 			}
-			if offline {
+			for i := range want {
+				want[i].pgdgRepository = tc.selected
+			}
+			if tc.offline {
 				want = []Package{{Major: "18", Candidate: "18.6-1"}}
 			}
-			if !reflect.DeepEqual(got, want) || (err != nil) != offline {
-				t.Fatalf("InstallPackages() = %+v, %v; want %+v, offline=%v", got, err, want, offline)
+			if !reflect.DeepEqual(got, want) || (err != nil) != tc.offline {
+				t.Fatalf("InstallPackages() = %+v, %v; want %+v, offline=%v", got, err, want, tc.offline)
 			}
-			if _, err := os.Stat(previewDir); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("preview directory should be cleaned up: %v", err)
+			for _, dir := range previewDirs {
+				if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("preview directory should be cleaned up: %v", err)
+				}
 			}
 		})
 	}
@@ -85,16 +107,22 @@ func TestInstallPGDGUsesConfirmedVersion(t *testing.T) {
 		name        string
 		existingPG  bool
 		existingAPT bool
+		repository  string
 		missing     bool
 		wantSteps   []string
 		wantError   string
 	}{
 		{name: "fresh host", wantSteps: []string{"source", "update", "install"}},
+		{name: "selected mirror", repository: pgdgChinaRepository, wantSteps: []string{"source", "update", "install"}},
 		{name: "already has PGDG", existingAPT: true, wantSteps: []string{"update", "install"}},
 		{name: "selected package disappeared", missing: true, wantSteps: []string{"source", "update"}, wantError: "请重新选择"},
 		{name: "already has PostgreSQL", existingPG: true, wantError: "本机已有 PostgreSQL 实例"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			repository := tc.repository
+			if repository == "" {
+				repository = pgdgRepository
+			}
 			var steps []string
 			installed := false
 			cluster := testCluster
@@ -113,7 +141,7 @@ func TestInstallPGDGUsesConfirmedVersion(t *testing.T) {
 				case "/bin/sh":
 					steps = append(steps, "source")
 					source, err := io.ReadAll(c.Stdin)
-					if err != nil || !c.AsRoot || !strings.Contains(string(source), "URIs: https://apt.postgresql.org/pub/repos/apt\nSuites: noble-pgdg\n") {
+					if err != nil || !c.AsRoot || !strings.Contains(string(source), fmt.Sprintf("URIs: https://%s\nSuites: noble-pgdg\n", repository)) {
 						t.Fatalf("unexpected source setup: %+v, %v", c, err)
 					}
 					return nil
@@ -154,7 +182,7 @@ func TestInstallPGDGUsesConfirmedVersion(t *testing.T) {
 					return nil
 				}
 			})}
-			err := s.Install(context.Background(), Package{Major: "17", Candidate: version, PGDG: true}, io.Discard, io.Discard)
+			err := s.Install(context.Background(), Package{Major: "17", Candidate: version, PGDG: true, pgdgRepository: tc.repository}, io.Discard, io.Discard)
 			if !reflect.DeepEqual(steps, tc.wantSteps) || (tc.wantError == "" && err != nil) || (tc.wantError != "" && (err == nil || !strings.Contains(err.Error(), tc.wantError))) {
 				t.Fatalf("install steps = %v, error = %v; want %v, %q", steps, err, tc.wantSteps, tc.wantError)
 			}

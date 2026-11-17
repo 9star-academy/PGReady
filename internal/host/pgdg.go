@@ -16,7 +16,10 @@ import (
 	"github.com/9star-academy/PGReady/internal/command"
 )
 
-const pgdgRepository = "apt.postgresql.org/pub/repos/apt"
+const (
+	pgdgRepository      = "apt.postgresql.org/pub/repos/apt"
+	pgdgChinaRepository = "mirrors.nju.edu.cn/postgresql/repos/apt"
+)
 
 // PGDG archive signing key B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8.
 //
@@ -95,7 +98,7 @@ func (s Service) InstallPackages(ctx context.Context) ([]Package, error) {
 	return packages, nil
 }
 
-func (s Service) pgdgSource(ctx context.Context, codename string) (string, error) {
+func (s Service) pgdgSource(ctx context.Context, codename, repository string) (string, error) {
 	out, err := command.Output(ctx, s.Runner, command.Call{Name: "/usr/bin/dpkg", Args: []string{"--print-architecture"}})
 	if err != nil {
 		return "", fmt.Errorf("读取 APT 架构: %w", err)
@@ -107,7 +110,7 @@ func (s Service) pgdgSource(ctx context.Context, codename string) (string, error
 		return "", fmt.Errorf("PGDG 暂未配置架构 %q", arch)
 	}
 	var source strings.Builder
-	fmt.Fprintf(&source, "Types: deb\nURIs: https://%s\nSuites: %s-pgdg\nArchitectures: %s\nComponents: main\nSigned-By:\n", pgdgRepository, codename, arch)
+	fmt.Fprintf(&source, "Types: deb\nURIs: https://%s\nSuites: %s-pgdg\nArchitectures: %s\nComponents: main\nSigned-By:\n", repository, codename, arch)
 	for _, line := range strings.Split(strings.TrimSpace(pgdgKey), "\n") {
 		if line == "" {
 			line = "."
@@ -118,9 +121,35 @@ func (s Service) pgdgSource(ctx context.Context, codename string) (string, error
 }
 
 func (s Service) previewPGDG(ctx context.Context, codename string) ([]Package, error) {
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	repositories := []string{pgdgRepository, pgdgChinaRepository}
+	switch os.Getenv("PGREADY_DOWNLOAD_MODE") {
+	case "cn":
+		repositories[0], repositories[1] = repositories[1], repositories[0]
+	case "direct":
+		repositories = repositories[:1]
+	}
+	var failures []error
+	for _, repository := range repositories {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		packages, err := s.previewPGDGRepository(ctx, codename, repository)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("%s: %w", repository, err))
+			continue
+		}
+		for i := range packages {
+			packages[i].pgdgRepository = repository
+		}
+		return packages, nil
+	}
+	return nil, errors.Join(failures...)
+}
+
+func (s Service) previewPGDGRepository(ctx context.Context, codename, repository string) ([]Package, error) {
+	ctx, cancel := context.WithTimeout(ctx, 7*time.Second)
 	defer cancel()
-	source, err := s.pgdgSource(ctx, codename)
+	source, err := s.pgdgSource(ctx, codename, repository)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +200,10 @@ APT::Update::Error-Mode "any";
 	return s.aptPackages(ctx, configPath)
 }
 
-func (s Service) enablePGDG(ctx context.Context, codename string, out, errOut io.Writer) error {
+func (s Service) enablePGDG(ctx context.Context, codename, repository string, out, errOut io.Writer) error {
+	if repository == "" {
+		repository = pgdgRepository
+	}
 	targets, err := command.Output(ctx, s.Runner, command.Call{Name: "/usr/bin/apt-get", Args: []string{
 		"indextargets", "--no-release-info", "--format", "$(REPO_URI) $(RELEASE)",
 	}})
@@ -183,14 +215,14 @@ func (s Service) enablePGDG(ctx context.Context, codename string, out, errOut io
 		fields := strings.Fields(line)
 		if len(fields) == 2 && fields[1] == codename+"-pgdg" {
 			uri := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(fields[0], "https://"), "http://"), "/")
-			if uri == pgdgRepository {
+			if uri == repository {
 				enabled = true
 				break
 			}
 		}
 	}
 	if !enabled {
-		source, err := s.pgdgSource(ctx, codename)
+		source, err := s.pgdgSource(ctx, codename, repository)
 		if err != nil {
 			return err
 		}
