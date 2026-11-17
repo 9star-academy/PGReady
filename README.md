@@ -28,13 +28,13 @@
 **国内服务器**（镜像优先）
 
 ```bash
-(pgready_bootstrap=$(curl -fsSL https://cdn.jsdelivr.net/gh/9star-academy/PGReady@v0.1.2/scripts/bootstrap.sh) && PGREADY_DOWNLOAD_MODE=cn bash -c "$pgready_bootstrap")
+(pgready_bootstrap=$(curl -fsSL https://cdn.jsdelivr.net/gh/9star-academy/PGReady@v0.1.3/scripts/bootstrap.sh) && PGREADY_DOWNLOAD_MODE=cn bash -c "$pgready_bootstrap")
 ```
 
 **国外服务器**（GitHub 优先）
 
 ```bash
-(pgready_bootstrap=$(curl -fsSL https://raw.githubusercontent.com/9star-academy/PGReady/v0.1.2/scripts/bootstrap.sh) && PGREADY_DOWNLOAD_MODE=auto bash -c "$pgready_bootstrap")
+(pgready_bootstrap=$(curl -fsSL https://raw.githubusercontent.com/9star-academy/PGReady/v0.1.3/scripts/bootstrap.sh) && PGREADY_DOWNLOAD_MODE=auto bash -c "$pgready_bootstrap")
 ```
 
 `cn` 优先镜像，`auto` 优先 GitHub。安装脚本、校验文件和程序包下载或校验失败时会切换线路。把国外命令中的 `auto` 改成 `direct` 即可仅使用 GitHub。如需更换默认镜像 `https://gh-proxy.com`，可在执行前设置 `PGREADY_GITHUB_MIRROR`。
@@ -49,7 +49,7 @@ pgready status
 pgready
 ```
 
-版本应显示 `pgready v0.1.2`。`pgready status` 会列出 APT 管理的本机实例及其端口和状态。空机可在菜单选择 `2. 安装与版本 → 3. 安装 PostgreSQL`。如果找不到可安装的软件包，先执行 `sudo apt-get update` 刷新软件源索引。
+版本应显示 `pgready v0.1.3`。现有安装可运行上面的命令覆盖升级。`pgready status` 会列出 APT 管理的本机实例及其端口和状态。空机可在菜单选择 `2. 安装与版本 → 3. 安装 PostgreSQL`。如果找不到可安装的软件包，先执行 `sudo apt-get update` 刷新软件源索引。
 
 ## 功能菜单
 
@@ -70,8 +70,8 @@ pgready
 <summary><strong>2. 安装与版本</strong> · 安装 PostgreSQL、查看可用版本与补丁</summary>
 
 1. **检查安装环境** — 显示系统版本、软件包来源和已经识别到的 PostgreSQL 实例。
-2. **查看可安装版本** — 列出当前软件源提供的 PostgreSQL 主版本。
-3. **安装 PostgreSQL** — 在新服务器上选择版本，确认后通过 APT 安装，再检查新实例状态。
+2. **查看可安装版本** — 自动查询 PostgreSQL 官方 PGDG 源，列出当前系统和架构可用的正式版本。每个主版本显示一个候选包。官方源查询失败时，提示原因并显示本机 APT 候选包。
+3. **安装 PostgreSQL** — 按编号选择并核对完整包版本。输入 `y` 后，PGReady 按需添加官方 PGDG 源并刷新 APT 索引，再安装已确认的版本。直接回车取消。安装后会检查新实例状态。
 4. **检查补丁更新** — 显示当前主版本的已安装版本和可用补丁版本。
 
 后续计划支持应用补丁更新。跨主版本迁移单独设计，包含扩展兼容性检查、备份恢复验证和切换步骤。

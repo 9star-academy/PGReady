@@ -1,14 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/9star-academy/PGReady/internal/command"
+	"github.com/9star-academy/PGReady/internal/host"
 )
 
 const inventory = `Ver Cluster Port Status Owner    Data directory              Log file
@@ -72,6 +75,49 @@ func TestStopIsScopedToConfirmedInstance(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "已取消") {
 		t.Fatal("the first stop should have been canceled")
+	}
+}
+
+func TestChooseInstallPackage(t *testing.T) {
+	packages := []host.Package{
+		{Major: "17", Candidate: "17.9-1"},
+		{Major: "18", Candidate: "18.6-0ubuntu0.26.04.1"},
+	}
+	for _, tc := range []struct {
+		name   string
+		input  string
+		prompt string
+		cancel bool
+	}{
+		{name: "confirm second version", input: "2\ny\n", prompt: "确认通过 APT 安装 PostgreSQL 18（18.6-0ubuntu0.26.04.1）？ [y/N]："},
+		{name: "invalid choice then confirm", input: "3\n2\ny\n", prompt: "确认通过 APT 安装 PostgreSQL 18（18.6-0ubuntu0.26.04.1）？ [y/N]："},
+		{name: "Enter cancels confirmation", input: "2\n\n", prompt: "确认通过 APT 安装 PostgreSQL 18（18.6-0ubuntu0.26.04.1）？ [y/N]：", cancel: true},
+		{name: "zero returns before confirmation", input: "0\n", cancel: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			a := app{ctx: context.Background(), in: bufio.NewReader(strings.NewReader(tc.input)), out: &out, errOut: &errOut}
+			selected, err := a.chooseInstallPackage(packages)
+			if tc.cancel {
+				if !errors.Is(err, errCanceled) || selected != (host.Package{}) {
+					t.Fatalf("canceled choice returned %+v, %v", selected, err)
+				}
+			} else if err != nil || selected != packages[1] {
+				t.Fatalf("confirmed choice returned %+v, %v; want %+v", selected, err, packages[1])
+			}
+			for _, item := range []string{"1. PostgreSQL 17（17.9-1）", "2. PostgreSQL 18（18.6-0ubuntu0.26.04.1）", "0. 返回"} {
+				if !strings.Contains(out.String(), item) {
+					t.Errorf("missing %q from output:\n%s", item, &out)
+				}
+			}
+			if tc.prompt == "" {
+				if strings.Contains(out.String(), "[y/N]") {
+					t.Errorf("return should skip confirmation:\n%s", &out)
+				}
+			} else if !strings.Contains(out.String(), tc.prompt) {
+				t.Errorf("missing confirmation %q from output:\n%s", tc.prompt, &out)
+			}
+		})
 	}
 }
 

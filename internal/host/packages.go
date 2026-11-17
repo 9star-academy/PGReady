@@ -18,6 +18,7 @@ type Package struct {
 	Major     string
 	Installed string
 	Candidate string
+	PGDG      bool
 }
 
 var (
@@ -27,14 +28,19 @@ var (
 
 const updateHint = "请先运行 sudo apt-get update，再检查已配置的 APT 软件源"
 
-func (s Service) operatingSystem() (string, error) {
+type systemRelease struct {
+	description string
+	codename    string
+}
+
+func (s Service) operatingSystem() (systemRelease, error) {
 	files := s.filesystem()
 	data, err := fs.ReadFile(files, "etc/os-release")
 	if errors.Is(err, fs.ErrNotExist) {
 		data, err = fs.ReadFile(files, "usr/lib/os-release")
 	}
 	if err != nil {
-		return "", fmt.Errorf("读取系统版本: %w", err)
+		return systemRelease{}, fmt.Errorf("读取系统版本: %w", err)
 	}
 
 	values := make(map[string]string)
@@ -54,16 +60,22 @@ func (s Service) operatingSystem() (string, error) {
 	if description == "" {
 		description = strings.TrimSpace(id + " " + version)
 	}
-	switch id + ":" + version {
-	case "ubuntu:22.04", "ubuntu:24.04", "ubuntu:26.04", "debian:12", "debian:13":
-		return description, nil
-	default:
-		return "", fmt.Errorf("APT 安装与版本检查仅支持 Ubuntu 22.04、24.04、26.04 LTS 或 Debian 12、13，检测到 %q", description)
+	codenames := map[string]string{
+		"ubuntu:22.04": "jammy",
+		"ubuntu:24.04": "noble",
+		"ubuntu:26.04": "resolute",
+		"debian:12":    "bookworm",
+		"debian:13":    "trixie",
 	}
+	codename := codenames[id+":"+version]
+	if codename == "" {
+		return systemRelease{}, fmt.Errorf("APT 安装与版本检查仅支持 Ubuntu 22.04、24.04、26.04 LTS 或 Debian 12、13，检测到 %q", description)
+	}
+	return systemRelease{description: description, codename: codename}, nil
 }
 
 func (s Service) Environment(ctx context.Context) (string, error) {
-	description, err := s.operatingSystem()
+	release, err := s.operatingSystem()
 	if err != nil {
 		return "", err
 	}
@@ -86,18 +98,20 @@ func (s Service) Environment(ctx context.Context) (string, error) {
 	}
 	sort.Strings(names)
 	if len(names) == 0 {
-		return fmt.Sprintf("系统 %s\nAPT 缓存未列出来源主机。%s", description, updateHint), nil
+		return fmt.Sprintf("系统 %s\nAPT 缓存未列出来源主机。%s", release.description, updateHint), nil
 	}
-	return fmt.Sprintf("系统 %s\nAPT 来源主机 %s", description, strings.Join(names, "、")), nil
+	return fmt.Sprintf("系统 %s\nAPT 来源主机 %s", release.description, strings.Join(names, "、")), nil
 }
 
 func (s Service) Packages(ctx context.Context) ([]Package, error) {
 	if _, err := s.operatingSystem(); err != nil {
 		return nil, err
 	}
-	out, err := command.Output(ctx, s.Runner, command.Call{
-		Name: "/usr/bin/apt-cache", Args: []string{"pkgnames", "postgresql-"},
-	})
+	return s.aptPackages(ctx, "")
+}
+
+func (s Service) aptPackages(ctx context.Context, config string) ([]Package, error) {
+	out, err := command.Output(ctx, s.Runner, aptCommand(config, "/usr/bin/apt-cache", "pkgnames", "postgresql-"))
 	if err != nil {
 		return nil, fmt.Errorf("获取 PostgreSQL 软件包 (%s): %w", updateHint, err)
 	}
@@ -119,7 +133,7 @@ func (s Service) Packages(ctx context.Context) ([]Package, error) {
 	if len(names) == 0 {
 		return nil, fmt.Errorf("APT 缓存中没有 PostgreSQL 服务端软件包。%s", updateHint)
 	}
-	policy, err := s.packagePolicy(ctx, names)
+	policy, err := s.packagePolicy(ctx, config, names)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +157,7 @@ func (s Service) Package(ctx context.Context, major string) (Package, error) {
 	if !versionedPackage.MatchString(name) {
 		return Package{}, fmt.Errorf("无效的 PostgreSQL 主版本 %q", major)
 	}
-	policy, err := s.packagePolicy(ctx, []string{name})
+	policy, err := s.packagePolicy(ctx, "", []string{name})
 	if err != nil {
 		return Package{}, err
 	}
@@ -154,10 +168,8 @@ func (s Service) Package(ctx context.Context, major string) (Package, error) {
 	return p, nil
 }
 
-func (s Service) packagePolicy(ctx context.Context, names []string) (map[string]Package, error) {
-	out, err := command.Output(ctx, s.Runner, command.Call{
-		Name: "/usr/bin/apt-cache", Args: append([]string{"policy"}, names...),
-	})
+func (s Service) packagePolicy(ctx context.Context, config string, names []string) (map[string]Package, error) {
+	out, err := command.Output(ctx, s.Runner, aptCommand(config, "/usr/bin/apt-cache", append([]string{"policy"}, names...)...))
 	if err != nil {
 		return nil, fmt.Errorf("读取 PostgreSQL 安装版本和候选版本 (%s): %w", updateHint, err)
 	}
@@ -199,13 +211,15 @@ func parsePolicy(text string) (map[string]Package, error) {
 	return packages, nil
 }
 
-func (s Service) Install(ctx context.Context, major string, out, errOut io.Writer) error {
-	p, err := s.Package(ctx, major)
+func (s Service) Install(ctx context.Context, selected Package, out, errOut io.Writer) error {
+	release, err := s.operatingSystem()
 	if err != nil {
 		return err
 	}
-	if p.Installed != "" {
-		return fmt.Errorf("已安装 postgresql-%s %s，首装功能仅适用于没有 PostgreSQL 的主机", p.Major, p.Installed)
+	major, confirmedVersion := selected.Major, selected.Candidate
+	name := "postgresql-" + major
+	if !versionedPackage.MatchString(name) || !stablePackageVersion(selected) || !debianVersion.MatchString(confirmedVersion) {
+		return fmt.Errorf("无效的 PostgreSQL 安装版本 %q", name+"="+confirmedVersion)
 	}
 	clusters, err := s.Clusters(ctx)
 	if err != nil {
@@ -214,12 +228,33 @@ func (s Service) Install(ctx context.Context, major string, out, errOut io.Write
 	if len(clusters) != 0 {
 		return fmt.Errorf("本机已有 PostgreSQL 实例，首装功能仅适用于没有 PostgreSQL 的主机")
 	}
+	if selected.PGDG {
+		if err := s.enablePGDG(ctx, release.codename, out, errOut); err != nil {
+			return err
+		}
+	}
+	p, err := s.Package(ctx, major)
+	if err != nil {
+		return err
+	}
+	if p.Installed != "" {
+		return fmt.Errorf("已安装 %s %s，首装功能仅适用于没有 PostgreSQL 的主机", name, p.Installed)
+	}
 	if p.Candidate == "" {
 		return fmt.Errorf("postgresql-%s 没有可安装的候选版本。%s", major, updateHint)
 	}
+	if selected.PGDG {
+		if _, err := command.Output(ctx, s.Runner, command.Call{
+			Name: "/usr/bin/apt-cache", Args: []string{"show", name + "=" + confirmedVersion},
+		}); err != nil {
+			return fmt.Errorf("APT 中找不到已确认的 %s=%s，请重新选择: %w", name, confirmedVersion, err)
+		}
+	} else if p.Candidate != confirmedVersion {
+		return fmt.Errorf("postgresql-%s 的 APT 候选版本已变为 %s，请重新选择并确认", major, p.Candidate)
+	}
 	if err := s.Runner.Run(ctx, command.Call{
 		Name: "/usr/bin/apt-get", Args: []string{
-			"--yes", "--no-remove", "--no-upgrade", "install", "postgresql-" + p.Major + "=" + p.Candidate,
+			"--yes", "--no-remove", "--no-upgrade", "install", name + "=" + confirmedVersion,
 		}, AsRoot: true, Stdout: out, Stderr: errOut,
 	}); err != nil {
 		return fmt.Errorf("安装 postgresql-%s: %w", major, err)

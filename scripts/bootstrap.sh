@@ -39,7 +39,7 @@ check_platform() {
     esac
 }
 
-readonly version=v0.1.2
+readonly version=v0.1.3
 readonly installer_sha256=18b6d53a498e082f183695be054671755bf886ad85899eb6ce68c543788e6ddd
 readonly upstream="https://github.com/9star-academy/PGReady/releases/download/$version/install.sh"
 

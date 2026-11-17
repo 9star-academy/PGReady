@@ -253,19 +253,21 @@ func TestPackageMissingAPTMetadataIncludesRecovery(t *testing.T) {
 func TestInstallGuardsAndPartialSuccess(t *testing.T) {
 	installErr := errors.New("APT lock unavailable")
 	for _, tc := range []struct {
-		name        string
-		unsafeOS    bool
-		existing    bool
-		noCandidate bool
-		noCluster   bool
-		packageErr  error
-		wantInstall bool
-		wantErr     string
+		name         string
+		unsafeOS     bool
+		existing     bool
+		noCandidate  bool
+		newCandidate string
+		noCluster    bool
+		packageErr   error
+		wantInstall  bool
+		wantErr      string
 	}{
 		{name: "success", wantInstall: true},
 		{name: "unsupported", unsafeOS: true, wantErr: `检测到 "debian 11"`},
 		{name: "existing registration", existing: true, wantErr: "已有"},
 		{name: "not available", noCandidate: true, wantErr: "apt-get update"},
+		{name: "candidate changed after selection", newCandidate: "16.8-1", wantErr: "候选版本已变为 16.8-1"},
 		{name: "apt failure", wantInstall: true, packageErr: installErr, wantErr: installErr.Error()},
 		{name: "package but no cluster", wantInstall: true, noCluster: true, wantErr: "软件包"},
 	} {
@@ -292,6 +294,9 @@ func TestInstallGuardsAndPartialSuccess(t *testing.T) {
 					if tc.noCandidate {
 						candidate = "(none)"
 					}
+					if tc.newCandidate != "" {
+						candidate = tc.newCandidate
+					}
 					return output(c, "postgresql-16:\n  Installed: (none)\n  Candidate: "+candidate+"\n")
 				case aptGet:
 					if installed || !c.AsRoot || !reflect.DeepEqual(c.Args, []string{"--yes", "--no-remove", "--no-upgrade", "install", "postgresql-16=16.7-1"}) {
@@ -304,7 +309,7 @@ func TestInstallGuardsAndPartialSuccess(t *testing.T) {
 					return nil
 				}
 			})}
-			err := s.Install(context.Background(), "16", io.Discard, io.Discard)
+			err := s.Install(context.Background(), Package{Major: "16", Candidate: "16.7-1"}, io.Discard, io.Discard)
 			if installed != tc.wantInstall || (tc.wantErr == "" && err != nil) || (tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr))) {
 				t.Fatalf("Install() = %v, attempted %v; want error containing %q and attempted %v", err, installed, tc.wantErr, tc.wantInstall)
 			}

@@ -2,8 +2,11 @@ package main
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/9star-academy/PGReady/internal/cluster"
+	"github.com/9star-academy/PGReady/internal/host"
 )
 
 func (a *app) instanceMenu() error {
@@ -95,28 +98,40 @@ func (a *app) installMenu() error {
 }
 
 func (a *app) listPackages() error {
-	packages, err := a.host.Packages(a.ctx)
+	packages, err := a.installPackages()
 	if err != nil {
 		return err
 	}
 	for _, pkg := range packages {
-		fmt.Fprintf(a.out, "PostgreSQL %s  已安装 %s  候选 %s\n", pkg.Major, pkg.Installed, pkg.Candidate)
+		source := "本机 APT 源"
+		if pkg.PGDG {
+			source = "官方 PGDG 源"
+		}
+		fmt.Fprintf(a.out, "PostgreSQL %s  已安装 %s  候选 %s  %s\n", pkg.Major, pkg.Installed, pkg.Candidate, source)
 	}
 	return nil
 }
 
-func (a *app) installPostgres() error {
-	if err := a.listPackages(); err != nil {
-		return err
+func (a *app) installPackages() ([]host.Package, error) {
+	fmt.Fprintln(a.out, "正在查询 PostgreSQL 官方软件源…")
+	packages, err := a.host.InstallPackages(a.ctx)
+	if err != nil && len(packages) != 0 {
+		fmt.Fprintf(a.errOut, "%v\n当前仅显示本机 APT 源中的可安装版本。\n", err)
+		return packages, nil
 	}
-	major, err := a.ask("PostgreSQL 主版本")
+	return packages, err
+}
+
+func (a *app) installPostgres() error {
+	packages, err := a.installPackages()
 	if err != nil {
 		return err
 	}
-	if err := a.confirm(fmt.Sprintf("确认通过 APT 安装 PostgreSQL %q？", major)); err != nil {
+	selected, err := a.chooseInstallPackage(packages)
+	if err != nil {
 		return err
 	}
-	if err := a.host.Install(a.ctx, major, a.out, a.errOut); err != nil {
+	if err := a.host.Install(a.ctx, selected, a.out, a.errOut); err != nil {
 		return err
 	}
 	clusters, err := a.host.Clusters(a.ctx)
@@ -129,4 +144,36 @@ func (a *app) installPostgres() error {
 		return a.show(a.host.Ready(a.ctx, clusters[0]))
 	}
 	return nil
+}
+
+func (a *app) chooseInstallPackage(packages []host.Package) (host.Package, error) {
+	a.menuIntro("选择 PostgreSQL 版本")
+	a.menuLine()
+	for i, pkg := range packages {
+		a.menuItem(i+1, fmt.Sprintf("PostgreSQL %s（%s）", pkg.Major, pkg.Candidate))
+	}
+	a.menuItem(0, "返回")
+	a.menuLine()
+	for {
+		answer, err := a.menuChoice()
+		if err != nil {
+			return host.Package{}, err
+		}
+		choice, err := strconv.Atoi(strings.TrimSpace(answer))
+		if err != nil || choice < 0 || choice > len(packages) {
+			fmt.Fprintln(a.errOut, "无效选项，请重新输入。")
+			continue
+		}
+		if choice == 0 {
+			return host.Package{}, errCanceled
+		}
+		pkg := packages[choice-1]
+		if pkg.PGDG {
+			fmt.Fprintln(a.out, "使用 PostgreSQL 官方 PGDG 源。确认后将按需添加该源，以便后续通过 APT 更新。")
+		}
+		if err := a.confirm(fmt.Sprintf("确认通过 APT 安装 PostgreSQL %s（%s）？", pkg.Major, pkg.Candidate)); err != nil {
+			return host.Package{}, err
+		}
+		return pkg, nil
+	}
 }
