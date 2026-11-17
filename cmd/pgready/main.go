@@ -34,7 +34,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		style:   menuStyleFor(out),
 	}
 	if len(args) > 1 {
-		fmt.Fprintln(errOut, "用法：pgready [menu|status|--version|--help]")
+		fmt.Fprintln(errOut, "用法：pgready [menu|status|update|--version|--help]")
 		return 2
 	}
 	action := "menu"
@@ -47,10 +47,13 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		fmt.Fprintln(out, "PGReady · PostgreSQL 管理器")
 		fmt.Fprintln(out, "pgready         打开中文数字菜单")
 		fmt.Fprintln(out, "pgready status  列出本机 APT 管理的 PostgreSQL 实例")
+		fmt.Fprintln(out, "pgready update  将 PGReady 更新到最新正式版")
 		fmt.Fprintln(out, "pgready --version  显示当前版本")
 		fmt.Fprintln(out, "pgready --help  显示命令行用法")
 	case "--version":
 		fmt.Fprintln(out, "pgready", version)
+	case "update":
+		err = update(ctx, version, out, errOut)
 	case "status":
 		var clusters []cluster.Cluster
 		clusters, err = a.host.Clusters(ctx)

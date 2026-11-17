@@ -39,6 +39,22 @@ check_platform() {
     esac
 }
 
+set_download_bases() {
+    local upstream=$1 mode=${PGREADY_DOWNLOAD_MODE:-auto}
+    local mirror=${PGREADY_GITHUB_MIRROR:-https://gh-proxy.com}
+    local mirror_pattern='^https://[a-zA-Z0-9.-]+(:[0-9]+)?(/[a-zA-Z0-9._~/-]*)?$'
+    [[ $mirror =~ $mirror_pattern ]] || die 'PGREADY_GITHUB_MIRROR 必须为不含凭据、查询参数的 HTTPS 镜像前缀。'
+    while [[ $mirror == */ ]]; do
+        mirror=${mirror%/}
+    done
+    case "$mode" in
+        auto) download_bases=("$upstream" "$mirror/$upstream") ;;
+        cn) download_bases=("$mirror/$upstream" "$upstream") ;;
+        direct) download_bases=("$upstream") ;;
+        *) die 'PGREADY_DOWNLOAD_MODE 必须为 auto、cn 或 direct。' ;;
+    esac
+}
+
 download() {
     curl --disable --fail --silent --show-error --location \
         --proto '=https' --proto-redir '=https' --tlsv1.2 \
@@ -121,6 +137,7 @@ set -euo pipefail
 source_file=$1
 checksum=$2
 destination=$3
+running=$4
 directory=${destination%/*}
 staged=
 trap 'if [[ -n $staged ]]; then rm -f -- "$staged"; fi' EXIT
@@ -130,40 +147,46 @@ trap 'exit 143' TERM
 if [[ ! -d $directory ]]; then
     install -d -- "$directory"
 fi
-if [[ -L $destination || ( -e $destination && ! -f $destination ) ]]; then
-    printf '错误：安装目标必须是普通文件或尚未创建。\n' >&2
-    exit 1
-fi
+check_destination() {
+    if [[ -L $destination || ( -e $destination && ! -f $destination ) ]]; then
+        printf '错误：安装目标必须是普通文件或尚未创建。\n' >&2
+        exit 1
+    fi
+    if [[ -n $running && ! $destination -ef $running ]]; then
+        printf '错误：PGReady 安装目标已变更，请重新运行 pgready update。\n' >&2
+        exit 1
+    fi
+}
+check_destination
 staged=$(mktemp "$directory/.pgready-install.XXXXXX")
 install -m 0755 -- "$source_file" "$staged"
 (
     cd -- "$directory"
     printf '%s  %s\n' "$checksum" "${staged##*/}" | sha256sum --check --strict --status -
 )
+check_destination
 mv -fT -- "$staged" "$destination"
 staged=
 PGREADY_REPLACE
 }
 
 main() {
+    local -a download_bases
+    if [[ $# -eq 1 && $1 == --release-sources ]]; then
+        check_platform >/dev/null
+        set_download_bases 'https://api.github.com/repos/9star-academy/PGReady/releases/latest'
+        printf '%s\n' "${download_bases[@]}"
+        return
+    fi
+    local running=
+    if [[ $# -eq 3 && $1 == --update && $3 =~ ^/proc/[1-9][0-9]*/exe$ ]]; then
+        running=$3
+        set -- "$2"
+    fi
     [[ $# -eq 1 ]] || die '用法：install.sh vX.Y.Z'
     local version=$1
     [[ $version =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die '版本号格式必须为 vX.Y.Z。'
-    local mode=${PGREADY_DOWNLOAD_MODE:-auto}
-    local mirror=${PGREADY_GITHUB_MIRROR:-https://gh-proxy.com}
-    local mirror_pattern='^https://[a-zA-Z0-9.-]+(:[0-9]+)?(/[a-zA-Z0-9._~/-]*)?$'
-    [[ $mirror =~ $mirror_pattern ]] || die 'PGREADY_GITHUB_MIRROR 必须为不含凭据、查询参数的 HTTPS 镜像前缀。'
-    while [[ $mirror == */ ]]; do
-        mirror=${mirror%/}
-    done
-    local -a download_bases
-    local base="https://github.com/9star-academy/PGReady/releases/download/$version"
-    case "$mode" in
-        auto) download_bases=("$base" "$mirror/$base") ;;
-        cn) download_bases=("$mirror/$base" "$base") ;;
-        direct) download_bases=("$base") ;;
-        *) die 'PGREADY_DOWNLOAD_MODE 必须为 auto、cn 或 direct。' ;;
-    esac
+    set_download_bases "https://github.com/9star-academy/PGReady/releases/download/$version"
 
     local arch
     arch=$(check_platform)
@@ -185,8 +208,12 @@ main() {
         || die "所有线路均未取得通过校验的 ${asset}。"
 
     local destination=/usr/local/bin/pgready
-    install_binary "$binary" "$checksum" "$destination" || die "安装到 $destination 失败。"
-    printf '已安装 pgready %s 到 %s\n' "$version" "$destination"
+    install_binary "$binary" "$checksum" "$destination" "$running" || die "安装到 $destination 失败。"
+    if [[ -n $running ]]; then
+        printf '已更新 PGReady 到 %s。\n' "$version"
+    else
+        printf '已安装 pgready %s 到 %s\n' "$version" "$destination"
+    fi
 }
 
 main "$@"

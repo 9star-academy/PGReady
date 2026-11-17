@@ -27,6 +27,7 @@ func (a *app) commands() error {
 	fmt.Fprintln(a.out, `在 SSH 终端输入
   pgready         打开数字菜单
   pgready status  查看本机 PostgreSQL 实例
+  pgready update  将 PGReady 更新到最新正式版
 
 进入 psql 后输入
   \conninfo       查看当前连接

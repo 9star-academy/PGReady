@@ -68,4 +68,20 @@ for script in bootstrap.sh install.sh; do
     assert_platform Linux aarch64 "检测到 debian 未知版本。$support"
 done
 
-printf 'PGReady 安装平台检查通过。\n'
+script=install.sh
+printf 'ID=debian\nVERSION_ID=12\n' > "$test_dir/os-release"
+latest='https://api.github.com/repos/9star-academy/PGReady/releases/latest'
+mirror='https://mirror.example:8443/github'
+for mode in auto cn direct; do
+    case "$mode" in
+        auto) expected=$(printf '%s\n' "$latest" "$mirror/$latest") ;;
+        cn) expected=$(printf '%s\n' "$mirror/$latest" "$latest") ;;
+        direct) expected=$latest ;;
+    esac
+    output=$(PATH="$test_dir/bin:$PATH" PGREADY_TEST_KERNEL=Linux PGREADY_TEST_MACHINE=aarch64 \
+        PGREADY_DOWNLOAD_MODE="$mode" PGREADY_GITHUB_MIRROR="$mirror/" \
+        bash "$test_dir/install.sh" --release-sources) || fail "无法读取 $mode 模式的查询地址"
+    [[ $output == "$expected" ]] || fail "$mode 模式的查询地址顺序错误"
+done
+
+printf 'PGReady 安装平台和更新线路检查通过。\n'

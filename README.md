@@ -28,13 +28,13 @@
 **国内服务器**（镜像优先）
 
 ```bash
-(pgready_bootstrap=$(curl -fsSL https://cdn.jsdelivr.net/gh/9star-academy/PGReady@v0.1.3/scripts/bootstrap.sh) && PGREADY_DOWNLOAD_MODE=cn bash -c "$pgready_bootstrap")
+(pgready_bootstrap=$(curl -fsSL https://cdn.jsdelivr.net/gh/9star-academy/PGReady@v0.1.4/scripts/bootstrap.sh) && PGREADY_DOWNLOAD_MODE=cn bash -c "$pgready_bootstrap")
 ```
 
 **国外服务器**（GitHub 优先）
 
 ```bash
-(pgready_bootstrap=$(curl -fsSL https://raw.githubusercontent.com/9star-academy/PGReady/v0.1.3/scripts/bootstrap.sh) && PGREADY_DOWNLOAD_MODE=auto bash -c "$pgready_bootstrap")
+(pgready_bootstrap=$(curl -fsSL https://raw.githubusercontent.com/9star-academy/PGReady/v0.1.4/scripts/bootstrap.sh) && PGREADY_DOWNLOAD_MODE=auto bash -c "$pgready_bootstrap")
 ```
 
 `cn` 优先镜像，`auto` 优先 GitHub。安装脚本、校验文件和程序包下载或校验失败时会切换线路。把国外命令中的 `auto` 改成 `direct` 即可仅使用 GitHub。如需更换默认镜像 `https://gh-proxy.com`，可在执行前设置 `PGREADY_GITHUB_MIRROR`。
@@ -49,7 +49,20 @@ pgready status
 pgready
 ```
 
-版本应显示 `pgready v0.1.3`。现有安装可运行上面的命令覆盖升级。`pgready status` 会列出 APT 管理的本机实例及其端口和状态。空机可在菜单选择 `2. 安装与版本 → 3. 安装 PostgreSQL`。如果找不到可安装的软件包，先执行 `sudo apt-get update` 刷新软件源索引。
+版本应显示 `pgready v0.1.4`。现有安装可运行上面的命令覆盖升级。`pgready status` 会列出 APT 管理的本机实例及其端口和状态。空机可在菜单选择 `2. 安装与版本 → 3. 安装 PostgreSQL`。如果找不到可安装的软件包，先执行 `sudo apt-get update` 刷新软件源索引。
+
+### 3. 更新 PGReady
+
+从 `v0.1.4` 起支持自更新。已安装 `v0.1.3` 或更早版本的服务器，先执行上面的安装命令覆盖升级一次。之后运行以下命令。
+
+```bash
+pgready update
+pgready --version
+```
+
+更新会查询 GitHub 标记的最新正式版，发现更高版本时自动下载，核对 SHA-256 和版本号后替换 `/usr/local/bin/pgready`。需要写入时会调用 `sudo`。整个操作只更新 PGReady 程序，PostgreSQL 服务无需重启。
+
+国内服务器可用 `PGREADY_DOWNLOAD_MODE=cn pgready update` 优先走镜像。默认的 `auto` 优先直连 GitHub，`direct` 仅使用 GitHub，也可以像安装时一样通过 `PGREADY_GITHUB_MIRROR` 设置镜像。
 
 ## 功能菜单
 
@@ -144,6 +157,7 @@ pgready
    | 输入位置 | 命令 | 用途 |
    | --- | --- | --- |
    | SSH 终端 | `pgready` | 打开 PGReady 主菜单 |
+   | SSH 终端 | `pgready update` | 更新 PGReady 到最新正式版 |
    | `psql` 内 | `\conninfo` | 查看当前连接 |
    | `psql` 内 | `\l` | 列出数据库 |
    | `psql` 内 | `\dt` | 列出当前搜索路径中可见的表 |
@@ -169,7 +183,8 @@ go build -o /tmp/pgready ./cmd/pgready
 /tmp/pgready
 ```
 
-- **本地检查** — 运行 `go test -race ./...`、`go vet ./...` 和 `bash scripts/install_test.sh`。测试覆盖发行版检查、多实例选择、取消与目标核对、SQL 参数转义、归档冲突和恢复失败。
+- **本地检查** — 运行 `go test -race ./...`、`go vet ./...` 和 `bash scripts/install_test.sh`。测试覆盖发行版检查、更新线路与版本比较、多实例选择、取消与目标核对、SQL 参数转义、归档冲突和恢复失败。
+- **发布准备** — 新建发布标签前，将引导脚本的版本号、安装器 SHA-256 和 README 安装命令一起更新到该标签。使用 `sha256sum scripts/install.sh` 计算安装器校验值。
 - **新服务器** — 从 `2` 安装 PostgreSQL，用 `3` 建库和创建应用账号，确认该账号能登录并执行查询。再通过 `4` 备份并恢复到新库，核对原库和恢复库的表及样例数据。
 - **已有两个实例的服务器** — 在 `1` 选中测试实例后执行服务操作，核对选中实例的状态变化，并查询另一个实例确认仍可用。
 - **初次使用 PostgreSQL** — 在 `8` 找到当前实例的连接示例，在 SSH 终端连接，进入 `psql` 后用 `\conninfo` 核对目标。
