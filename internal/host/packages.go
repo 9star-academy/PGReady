@@ -54,10 +54,12 @@ func (s Service) operatingSystem() (string, error) {
 	if description == "" {
 		description = strings.TrimSpace(id + " " + version)
 	}
-	if (id != "ubuntu" || version != "24.04") && (id != "debian" || version != "13") {
-		return "", fmt.Errorf("APT 安装与版本检查仅支持 Ubuntu 24.04 LTS 或 Debian 13，检测到 %q", description)
+	switch id + ":" + version {
+	case "ubuntu:22.04", "ubuntu:24.04", "ubuntu:26.04", "debian:12", "debian:13":
+		return description, nil
+	default:
+		return "", fmt.Errorf("APT 安装与版本检查仅支持 Ubuntu 22.04、24.04、26.04 LTS 或 Debian 12、13，检测到 %q", description)
 	}
-	return description, nil
 }
 
 func (s Service) Environment(ctx context.Context) (string, error) {

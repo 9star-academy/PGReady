@@ -6,9 +6,44 @@ die() {
     exit 1
 }
 
-readonly version=v0.1.1
-readonly installer_sha256=2c5bf221d1c7858093ef18e24f17271f7f96dad935ec249cab2d8e44849f8489
+# Keep the standalone entry points aligned with internal/host/packages.go.
+check_platform() {
+    local kernel machine arch
+    kernel=$(uname -s)
+    [[ $kernel == Linux ]] || die "检测到 ${kernel}。PGReady 仅支持 Linux。"
+    machine=$(uname -m)
+    case "$machine" in
+        x86_64|amd64) arch=amd64 ;;
+        aarch64|arm64) arch=arm64 ;;
+        *) die "检测到架构 ${machine}。PGReady 仅支持 Linux amd64 和 arm64。" ;;
+    esac
+
+    local os_release=/etc/os-release
+    local support='PGReady 仅支持 Ubuntu 22.04、24.04、26.04 LTS 和 Debian 12、13。'
+    [[ -e $os_release ]] || os_release=/usr/lib/os-release
+    [[ -r $os_release ]] || die "无法读取 Linux 发行版信息。$support"
+
+    local key value id= version_id=
+    while IFS='=' read -r key value || [[ -n $key ]]; do
+        case "$value" in
+            \"*\"|\'*\') value=${value:1:${#value}-2} ;;
+        esac
+        case "$key" in
+            ID) id=$value ;;
+            VERSION_ID) version_id=$value ;;
+        esac
+    done < "$os_release"
+    case "$id:$version_id" in
+        ubuntu:22.04|ubuntu:24.04|ubuntu:26.04|debian:12|debian:13) printf '%s\n' "$arch" ;;
+        *) die "检测到 ${id:-未知发行版} ${version_id:-未知版本}。$support" ;;
+    esac
+}
+
+readonly version=v0.1.2
+readonly installer_sha256=18b6d53a498e082f183695be054671755bf886ad85899eb6ce68c543788e6ddd
 readonly upstream="https://github.com/9star-academy/PGReady/releases/download/$version/install.sh"
+
+check_platform >/dev/null
 
 mode=${PGREADY_DOWNLOAD_MODE:-auto}
 mirror=${PGREADY_GITHUB_MIRROR:-https://gh-proxy.com}

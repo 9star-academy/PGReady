@@ -10,7 +10,7 @@
 <p align="center">
   <a href="#服务器安装">服务器安装</a> ·
   <a href="#功能菜单">功能菜单</a> ·
-  <a href="https://github.com/9star-academy/PGReady/releases/tag/v0.1.1">v0.1.1 发布</a>
+  <a href="https://github.com/9star-academy/PGReady/releases/latest">最新发布</a>
 </p>
 
 <p align="center">
@@ -21,7 +21,7 @@
 
 ## 服务器安装
 
-适用于 **Ubuntu 24.04 LTS / Debian 13**，支持 **amd64 / arm64**。SSH 登录后，准备好 Bash、`curl` 和 `sha256sum`，使用 root 或具备 sudo 权限的账号。
+适用于 **Ubuntu 22.04、24.04、26.04 LTS** 和 **Debian 12、13**，支持 **amd64 / arm64**。SSH 登录后，准备好 Bash、`curl` 和 `sha256sum`，使用 root 或具备 sudo 权限的账号。
 
 ### 1. 安装 PGReady
 
@@ -39,7 +39,7 @@
 
 `cn` 优先镜像，`auto` 优先 GitHub。安装脚本、校验文件和程序包下载或校验失败时会切换线路。把国外命令中的 `auto` 改成 `direct` 即可仅使用 GitHub。如需更换默认镜像 `https://gh-proxy.com`，可在执行前设置 `PGREADY_GITHUB_MIRROR`。
 
-引导脚本按固定 SHA-256 校验安装器。安装器识别架构、核对程序的 SHA-256 和版本，并安装到 `/usr/local/bin/pgready`。
+引导脚本先检查 Linux 发行版、版本与 CPU 架构，遇到不支持的环境会提示检测结果并退出。通过检查后，引导脚本按固定 SHA-256 校验安装器，安装器核对程序的 SHA-256 和版本并安装到 `/usr/local/bin/pgready`。
 
 ### 2. 验证并打开菜单
 
@@ -49,7 +49,7 @@ pgready status
 pgready
 ```
 
-版本应显示 `pgready v0.1.1`。`pgready status` 会列出 APT 管理的本机实例及其端口和状态。空机可在菜单选择 `2. 安装与版本 → 3. 安装 PostgreSQL`。如果找不到可安装的软件包，先执行 `sudo apt-get update` 刷新软件源索引。
+版本应显示 `pgready v0.1.2`。`pgready status` 会列出 APT 管理的本机实例及其端口和状态。空机可在菜单选择 `2. 安装与版本 → 3. 安装 PostgreSQL`。如果找不到可安装的软件包，先执行 `sudo apt-get update` 刷新软件源索引。
 
 ## 功能菜单
 
@@ -169,7 +169,7 @@ go build -o /tmp/pgready ./cmd/pgready
 /tmp/pgready
 ```
 
-- **本地检查** — 运行 `go test -race ./...` 和 `go vet ./...`。测试覆盖多实例选择、取消与目标核对、SQL 参数转义、归档冲突和恢复失败。
+- **本地检查** — 运行 `go test -race ./...`、`go vet ./...` 和 `bash scripts/install_test.sh`。测试覆盖发行版检查、多实例选择、取消与目标核对、SQL 参数转义、归档冲突和恢复失败。
 - **新服务器** — 从 `2` 安装 PostgreSQL，用 `3` 建库和创建应用账号，确认该账号能登录并执行查询。再通过 `4` 备份并恢复到新库，核对原库和恢复库的表及样例数据。
 - **已有两个实例的服务器** — 在 `1` 选中测试实例后执行服务操作，核对选中实例的状态变化，并查询另一个实例确认仍可用。
 - **初次使用 PostgreSQL** — 在 `8` 找到当前实例的连接示例，在 SSH 终端连接，进入 `psql` 后用 `\conninfo` 核对目标。

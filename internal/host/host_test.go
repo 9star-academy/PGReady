@@ -185,15 +185,31 @@ func TestReadyChecksClusterSocketAsOwner(t *testing.T) {
 }
 
 func TestEnvironmentUsesHostVersionAndConfiguredOrigins(t *testing.T) {
-	s := Service{files: testFS(), Runner: command.Func(func(_ context.Context, call command.Call) error {
-		if call.Name != aptCache || !reflect.DeepEqual(call.Args, []string{"policy"}) {
-			t.Fatalf("unexpected APT call: %+v", call)
-		}
-		return output(call, "Package files:\n    500 https://archive.ubuntu.com/ubuntu noble/main arm64 Packages\n     origin archive.ubuntu.com\n")
-	})}
-	info, err := s.Environment(context.Background())
-	if err != nil || !strings.Contains(info, "Ubuntu 24.04 LTS") || !strings.Contains(info, "archive.ubuntu.com") {
-		t.Fatalf("Environment() = %q, %v", info, err)
+	for _, tc := range []struct {
+		id         string
+		version    string
+		prettyName string
+		origin     string
+	}{
+		{"ubuntu", "22.04", "Ubuntu 22.04 LTS", "archive.ubuntu.com"},
+		{"ubuntu", "24.04", "Ubuntu 24.04 LTS", "archive.ubuntu.com"},
+		{"ubuntu", "26.04", "Ubuntu 26.04 LTS", "archive.ubuntu.com"},
+		{"debian", "12", "Debian GNU/Linux 12 (bookworm)", "deb.debian.org"},
+		{"debian", "13", "Debian GNU/Linux 13 (trixie)", "deb.debian.org"},
+	} {
+		t.Run(tc.id+"/"+tc.version, func(t *testing.T) {
+			release := fmt.Sprintf("ID=%s\nVERSION_ID=%q\nPRETTY_NAME=%q\n", tc.id, tc.version, tc.prettyName)
+			s := Service{files: fstest.MapFS{"etc/os-release": {Data: []byte(release)}}, Runner: command.Func(func(_ context.Context, call command.Call) error {
+				if call.Name != aptCache || !reflect.DeepEqual(call.Args, []string{"policy"}) {
+					t.Fatalf("unexpected APT call: %+v", call)
+				}
+				return output(call, "Package files:\n     origin "+tc.origin+"\n")
+			})}
+			info, err := s.Environment(context.Background())
+			if err != nil || !strings.Contains(info, tc.prettyName) || !strings.Contains(info, tc.origin) {
+				t.Fatalf("Environment() = %q, %v", info, err)
+			}
+		})
 	}
 }
 
@@ -247,7 +263,7 @@ func TestInstallGuardsAndPartialSuccess(t *testing.T) {
 		wantErr     string
 	}{
 		{name: "success", wantInstall: true},
-		{name: "unsupported", unsafeOS: true, wantErr: "Ubuntu 24.04"},
+		{name: "unsupported", unsafeOS: true, wantErr: `检测到 "debian 11"`},
 		{name: "existing registration", existing: true, wantErr: "已有"},
 		{name: "not available", noCandidate: true, wantErr: "apt-get update"},
 		{name: "apt failure", wantInstall: true, packageErr: installErr, wantErr: installErr.Error()},
@@ -256,7 +272,7 @@ func TestInstallGuardsAndPartialSuccess(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			files := testFS()
 			if tc.unsafeOS {
-				files["etc/os-release"] = &fstest.MapFile{Data: []byte("ID=debian\nVERSION_ID=12\n")}
+				files["etc/os-release"] = &fstest.MapFile{Data: []byte("ID=debian\nVERSION_ID=11\n")}
 			}
 			installed := false
 			s := Service{files: files, Runner: command.Func(func(_ context.Context, c command.Call) error {

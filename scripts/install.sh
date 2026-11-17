@@ -6,6 +6,39 @@ die() {
     exit 1
 }
 
+# Keep the standalone entry points aligned with internal/host/packages.go.
+check_platform() {
+    local kernel machine arch
+    kernel=$(uname -s)
+    [[ $kernel == Linux ]] || die "检测到 ${kernel}。PGReady 仅支持 Linux。"
+    machine=$(uname -m)
+    case "$machine" in
+        x86_64|amd64) arch=amd64 ;;
+        aarch64|arm64) arch=arm64 ;;
+        *) die "检测到架构 ${machine}。PGReady 仅支持 Linux amd64 和 arm64。" ;;
+    esac
+
+    local os_release=/etc/os-release
+    local support='PGReady 仅支持 Ubuntu 22.04、24.04、26.04 LTS 和 Debian 12、13。'
+    [[ -e $os_release ]] || os_release=/usr/lib/os-release
+    [[ -r $os_release ]] || die "无法读取 Linux 发行版信息。$support"
+
+    local key value id= version_id=
+    while IFS='=' read -r key value || [[ -n $key ]]; do
+        case "$value" in
+            \"*\"|\'*\') value=${value:1:${#value}-2} ;;
+        esac
+        case "$key" in
+            ID) id=$value ;;
+            VERSION_ID) version_id=$value ;;
+        esac
+    done < "$os_release"
+    case "$id:$version_id" in
+        ubuntu:22.04|ubuntu:24.04|ubuntu:26.04|debian:12|debian:13) printf '%s\n' "$arch" ;;
+        *) die "检测到 ${id:-未知发行版} ${version_id:-未知版本}。$support" ;;
+    esac
+}
+
 download() {
     curl --disable --fail --silent --show-error --location \
         --proto '=https' --proto-redir '=https' --tlsv1.2 \
@@ -132,14 +165,8 @@ main() {
         *) die 'PGREADY_DOWNLOAD_MODE 必须为 auto、cn 或 direct。' ;;
     esac
 
-    [[ $(uname -s) == Linux ]] || die '仅支持 Linux。'
-
     local arch
-    case "$(uname -m)" in
-        x86_64|amd64) arch=amd64 ;;
-        aarch64|arm64) arch=arm64 ;;
-        *) die '仅支持 Linux amd64 和 arm64。' ;;
-    esac
+    arch=$(check_platform)
     local tool
     for tool in curl sha256sum mktemp chmod install mv rm; do
         command -v "$tool" >/dev/null 2>&1 || die "缺少命令 $tool。"
