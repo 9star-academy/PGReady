@@ -9,8 +9,71 @@ die() {
 download() {
     curl --disable --fail --silent --show-error --location \
         --proto '=https' --proto-redir '=https' --tlsv1.2 \
-        --connect-timeout 15 --max-time 120 --retry 2 \
+        --connect-timeout 8 --max-time 120 --retry 1 --retry-delay 1 \
+        --speed-time 20 --speed-limit 1024 \
         --output "$1" "$2"
+}
+
+download_verified() {
+    local file=$1 verify=$2
+    shift 2
+    local base url
+    for base in "${download_bases[@]}"; do
+        url="$base/${file##*/}"
+        rm -f -- "$file" || return 1
+        printf '[PGReady] 下载：%s\n' "$url" >&2
+        if ! download "$file" "$url"; then
+            printf '[PGReady] 下载失败：%s\n' "$url" >&2
+        elif "$verify" "$file" "$@"; then
+            return 0
+        else
+            printf '[PGReady] 文件未通过校验：%s\n' "$url" >&2
+        fi
+    done
+    return 1
+}
+
+manifest_checksum() {
+    local file=$1 asset=$2
+    local record hash filename amd64_hash= arm64_hash=
+    local record_pattern='^([0-9A-Fa-f]{64}) [ *](pgready-linux-amd64|pgready-linux-arm64)$'
+    while IFS= read -r record || [[ -n $record ]]; do
+        [[ $record =~ $record_pattern ]] || return 1
+        hash=${BASH_REMATCH[1]}
+        filename=${BASH_REMATCH[2]}
+        case "$filename" in
+            pgready-linux-amd64)
+                [[ -z $amd64_hash ]] || return 1
+                amd64_hash=$hash
+                ;;
+            pgready-linux-arm64)
+                [[ -z $arm64_hash ]] || return 1
+                arm64_hash=$hash
+                ;;
+        esac
+    done < "$file" || return 1
+    [[ -n $amd64_hash && -n $arm64_hash ]] || return 1
+    if [[ $asset == pgready-linux-arm64 ]]; then
+        printf '%s\n' "$arm64_hash"
+    else
+        printf '%s\n' "$amd64_hash"
+    fi
+}
+
+verify_binary() {
+    local binary=$1 checksum=$2 version=$3 installed_version
+    if ! (
+        cd -- "${binary%/*}" || exit 1
+        printf '%s  %s\n' "$checksum" "${binary##*/}" | sha256sum --check --strict --status -
+    ); then
+        printf '[PGReady] SHA-256 校验失败。\n' >&2
+        return 1
+    fi
+    chmod -- 0755 "$binary" || return 1
+    if ! installed_version=$("$binary" --version) || [[ $installed_version != "pgready $version" ]]; then
+        printf '[PGReady] 程序版本与发布标签 %s 不一致。\n' "$version" >&2
+        return 1
+    fi
 }
 
 install_binary() {
@@ -53,6 +116,22 @@ main() {
     [[ $# -eq 1 ]] || die '用法：install.sh vX.Y.Z'
     local version=$1
     [[ $version =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die '版本号格式必须为 vX.Y.Z。'
+    local mode=${PGREADY_DOWNLOAD_MODE:-auto}
+    local mirror=${PGREADY_GITHUB_MIRROR:-https://gh-proxy.com}
+    local mirror_pattern='^https://[a-zA-Z0-9.-]+(:[0-9]+)?(/[a-zA-Z0-9._~/-]*)?$'
+    [[ $mirror =~ $mirror_pattern ]] || die 'PGREADY_GITHUB_MIRROR 必须为不含凭据、查询参数的 HTTPS 镜像前缀。'
+    while [[ $mirror == */ ]]; do
+        mirror=${mirror%/}
+    done
+    local -a download_bases
+    local base="https://github.com/9star-academy/PGReady/releases/download/$version"
+    case "$mode" in
+        auto) download_bases=("$base" "$mirror/$base") ;;
+        cn) download_bases=("$mirror/$base" "$base") ;;
+        direct) download_bases=("$base") ;;
+        *) die 'PGREADY_DOWNLOAD_MODE 必须为 auto、cn 或 direct。' ;;
+    esac
+
     [[ $(uname -s) == Linux ]] || die '仅支持 Linux。'
 
     local arch
@@ -71,44 +150,12 @@ main() {
     trap 'exit 130' INT
     trap 'exit 143' TERM
 
-    local asset="pgready-linux-$arch"
-    local base="https://github.com/9star-academy/PGReady/releases/download/$version"
-    download "$temporary_directory/SHA256SUMS" "$base/SHA256SUMS" || die '下载 SHA256SUMS 失败。'
-
-    local record hash filename amd64_hash= arm64_hash=
-    local record_pattern='^([0-9A-Fa-f]{64}) [ *](pgready-linux-amd64|pgready-linux-arm64)$'
-    while IFS= read -r record || [[ -n $record ]]; do
-        [[ $record =~ $record_pattern ]] || die 'SHA256SUMS 记录格式无效。'
-        hash=${BASH_REMATCH[1]}
-        filename=${BASH_REMATCH[2]}
-        case "$filename" in
-            pgready-linux-amd64)
-                [[ -z $amd64_hash ]] || die 'SHA256SUMS 包含重复的 amd64 记录。'
-                amd64_hash=$hash
-                ;;
-            pgready-linux-arm64)
-                [[ -z $arm64_hash ]] || die 'SHA256SUMS 包含重复的 arm64 记录。'
-                arm64_hash=$hash
-                ;;
-        esac
-    done < "$temporary_directory/SHA256SUMS"
-    [[ -n $amd64_hash && -n $arm64_hash ]] || die 'SHA256SUMS 缺少架构记录。'
-
-    local checksum=$amd64_hash
-    if [[ $arch == arm64 ]]; then
-        checksum=$arm64_hash
-    fi
-    download "$temporary_directory/$asset" "$base/$asset" || die "下载 $asset 失败。"
-    (
-        cd -- "$temporary_directory"
-        printf '%s  %s\n' "$checksum" "$asset" | sha256sum --check --strict --status -
-    ) || die 'SHA-256 校验失败。'
-
+    local asset="pgready-linux-$arch" checksum
+    checksum=$(download_verified "$temporary_directory/SHA256SUMS" manifest_checksum "$asset") \
+        || die '所有线路均未取得有效的 SHA256SUMS。'
     local binary="$temporary_directory/$asset"
-    chmod -- 0755 "$binary"
-    local installed_version
-    installed_version=$("$binary" --version) || die '无法执行版本检查。'
-    [[ $installed_version == "pgready $version" ]] || die "程序版本与发布标签 $version 不一致。"
+    download_verified "$binary" verify_binary "$checksum" "$version" \
+        || die "所有线路均未取得通过校验的 ${asset}。"
 
     local destination=/usr/local/bin/pgready
     install_binary "$binary" "$checksum" "$destination" || die "安装到 $destination 失败。"

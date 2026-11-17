@@ -8,13 +8,44 @@ PGReady 是九星学院的数据库管理工具，菜单交互沿用 [ShellReady
 
 ## 服务器安装
 
-在 Ubuntu 24.04 LTS 或 Debian 13 的 SSH 终端执行以下命令。安装器从 GitHub Release 下载对应的 Linux amd64 或 arm64 二进制，校验 SHA-256 后安装到 `/usr/local/bin/pgready`。
+适用于 Ubuntu 24.04 LTS 和 Debian 13。安装器识别 Linux amd64 或 arm64，校验下载后将程序安装到 `/usr/local/bin/pgready`。
+
+**国内服务器**运行以下命令，最后一行的 `cn` 表示镜像优先。**海外服务器**把最后的 `cn` 改为 `auto`。
 
 ```bash
-bash -o pipefail -c 'curl -fsSL https://github.com/9star-academy/PGReady/releases/download/v0.1.0/install.sh | bash -s -- v0.1.0'
+bash -c '
+set -euo pipefail
+export PGREADY_DOWNLOAD_MODE=$1
+u=https://github.com/9star-academy/PGReady/releases/download/v0.1.1/install.sh
+m=${PGREADY_GITHUB_MIRROR:-https://gh-proxy.com}
+[[ "$m" =~ ^https://[a-zA-Z0-9.-]+(:[0-9]+)?(/[a-zA-Z0-9._~/-]*)?$ ]] || { echo "PGREADY_GITHUB_MIRROR 必须为 HTTPS 镜像前缀" >&2; exit 2; }
+while [[ "$m" == */ ]]; do m=${m%/}; done
+f=$(mktemp)
+cleanup() { rm -f -- "$f"; }; trap cleanup EXIT
+get() {
+  curl -q -fsSL --proto "=https" --proto-redir "=https" --connect-timeout 8 --max-time 30 -o "$f" "$1" || return 1
+  [[ $(sha256sum < "$f") == "2c5bf221d1c7858093ef18e24f17271f7f96dad935ec249cab2d8e44849f8489  -" ]] || { echo "安装脚本 SHA-256 校验失败 $1" >&2; return 1; }
+  printf "[PGReady] 安装脚本 %s\n" "$1"
+}
+case "$PGREADY_DOWNLOAD_MODE" in
+  cn) get "$m/$u" || get "$u" ;;
+  auto) get "$u" || get "$m/$u" ;;
+  direct) get "$u" ;;
+  *) echo "下载模式必须为 auto、cn 或 direct" >&2; exit 2 ;;
+esac
+bash "$f" v0.1.1
+' -- cn
 ```
 
-执行 `pgready --version` 应显示 `pgready v0.1.0`。输入 `pgready` 打开菜单，新服务器可从「安装与版本」进入 PostgreSQL 安装。
+| 模式 | 安装脚本、校验文件和二进制的下载顺序 |
+| --- | --- |
+| `auto`（默认） | GitHub 优先，下载或校验失败后尝试镜像 |
+| `cn` | 镜像优先，下载或校验失败后尝试 GitHub |
+| `direct` | 仅使用 GitHub |
+
+默认镜像为 `https://gh-proxy.com`。可设置 `PGREADY_GITHUB_MIRROR` 指定支持「HTTPS 前缀/完整 GitHub URL」的镜像。安装入口用固定 SHA-256 校验脚本，安装器按同版本的 `SHA256SUMS` 核对程序包，并检查 `--version`。
+
+执行 `pgready --version` 应显示 `pgready v0.1.1`。输入 `pgready` 打开菜单，新服务器可从「安装与版本」进入 PostgreSQL 安装。
 
 ## 从源码构建
 

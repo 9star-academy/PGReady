@@ -30,6 +30,9 @@ jobs:
           go test -race ./...
           go vet ./...
           bash -n scripts/install.sh
+          if grep -Fq "/releases/download/$VERSION/install.sh" README.md; then
+            grep -Fq "$(sha256sum < scripts/install.sh)" README.md
+          fi
       - name: Build and checksum release assets
         run: |
           [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
@@ -53,6 +56,7 @@ jobs:
           - 安装和管理 PostgreSQL 实例，创建数据库与应用账号。
           - 支持单库备份、恢复到新库、日志诊断和命令速查。
           - 支持 Ubuntu 24.04 LTS 和 Debian 13 上的 APT 本机实例。
+          - 安装入口、校验文件和程序包支持直连优先、镜像优先和仅直连三种下载模式。
 
           服务器安装命令见 [README](https://github.com/9star-academy/PGReady/blob/$VERSION/README.md)。
           EOF
@@ -62,6 +66,6 @@ jobs:
       - name: Verify public installer on Linux amd64
         run: |
           curl -fsSL --retry 3 "https://github.com/9star-academy/PGReady/releases/download/$VERSION/install.sh" \
-            | bash -s -- "$VERSION"
+            | PGREADY_DOWNLOAD_MODE=direct bash -s -- "$VERSION"
           test "$(pgready --version)" = "pgready $VERSION"
           printf '8\n0\n0\n' | pgready | grep -F '1. 快速上手'
