@@ -17,7 +17,7 @@
   <img src="docs/images/pgready-menu.png" width="760" alt="PGReady 在 Ubuntu 上的中文数字菜单，显示当前实例、作者、八项功能和按键提示">
 </p>
 
-<p align="center"><sub>Ubuntu 实跑菜单。大象图标可在 Kitty 和 Ghostty 中显示。</sub></p>
+<p align="center"><sub>Ubuntu 实跑菜单。Kitty 和 Ghostty 显示 PostgreSQL 原版蓝象，其他彩色终端使用 🐘。</sub></p>
 
 ## 服务器安装
 

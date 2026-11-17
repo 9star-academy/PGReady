@@ -90,9 +90,14 @@ func (a *app) menuIntro(title string) {
 	fmt.Fprintln(a.out)
 	isMain := title == mainMenuTitle
 	indent := ""
-	if isMain && a.style.logo {
-		a.drawMenuLogo()
-		indent = strings.Repeat(" ", menuLogoColumns+1)
+	if isMain {
+		switch {
+		case a.style.logo:
+			a.drawMenuLogo()
+			indent = strings.Repeat(" ", menuLogoColumns+1)
+		case a.style.header != "":
+			title = "🐘 " + title
+		}
 	}
 	fmt.Fprintln(a.out, indent+a.style.title(title))
 	if c := a.selected; c != nil {

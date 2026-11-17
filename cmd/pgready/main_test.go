@@ -44,6 +44,9 @@ func TestMenuHelpUsesChosenPort(t *testing.T) {
 			t.Fatalf("missing %q from menu output:\n%s", want, &out)
 		}
 	}
+	if strings.Contains(out.String(), "🐘") {
+		t.Fatal("redirected output should not contain the fallback logo")
+	}
 	if code != 0 || errOut.Len() != 0 {
 		t.Fatalf("run returned %d, stderr %q", code, &errOut)
 	}

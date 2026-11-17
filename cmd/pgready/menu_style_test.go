@@ -135,14 +135,17 @@ func TestColorDoesNotChangeMenuActions(t *testing.T) {
 	}
 	ansi := regexp.MustCompile(`\x1b\[[0-9;]+m`)
 	got := ansi.ReplaceAllString(out.String(), "")
-	for _, want := range []string{"作者：tangbaichuan", "GitHub：https://github.com/reedtang666", "1. 实例与服务",
+	for _, want := range []string{"🐘 " + mainMenuTitle, "作者：tangbaichuan", "GitHub：https://github.com/reedtang666", "1. 实例与服务",
 		"8. 帮助与命令速查", "0. 退出", "[online]", "-p 5433 -U app_user",
 		"输入数字后按 Enter，0 返回或退出。\n请选择："} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in menu output", want)
 		}
 	}
-	if strings.Contains(got, "🐘") || strings.Contains(got, "\x1b_G") {
-		t.Fatal("text terminal output should contain neither the emoji nor graphics escapes")
+	if strings.Count(got, "🐘") != strings.Count(got, "🐘 "+mainMenuTitle) {
+		t.Fatal("the fallback logo should appear only in the main menu title")
+	}
+	if strings.Contains(got, "\x1b_G") {
+		t.Fatal("text terminal output should not contain graphics escapes")
 	}
 }
