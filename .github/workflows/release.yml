@@ -65,6 +65,9 @@ jobs:
             dist/pgready-linux-amd64 dist/pgready-linux-arm64 dist/SHA256SUMS dist/install.sh
       - name: Verify public installer on Linux amd64
         run: |
+          # The download endpoint can briefly return 404 after publication.
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 --max-time 30 \
+            --output /dev/null "https://github.com/9star-academy/PGReady/releases/download/$VERSION/install.sh"
           PGREADY_DOWNLOAD_MODE=direct bash scripts/bootstrap.sh
           test "$(pgready --version)" = "pgready $VERSION"
           printf '8\n0\n0\n' | pgready | grep -F '1. 快速上手'
