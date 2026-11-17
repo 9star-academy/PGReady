@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - name: Test
+        run: |
+          go test -race ./...
+          go vet ./...
+          bash -n scripts/install.sh
+      - name: Build and checksum release assets
+        run: |
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath \
+              -ldflags "-s -w -X main.version=$VERSION" \
+              -o "dist/pgready-linux-$arch" ./cmd/pgready
+          done
+          test "$(dist/pgready-linux-amd64 --version)" = "pgready $VERSION"
+          install -m 0755 scripts/install.sh dist/install.sh
+          cd dist
+          sha256sum pgready-linux-amd64 pgready-linux-arm64 > SHA256SUMS
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > dist/release-notes.md <<EOF
+          PGReady 是面向 Linux 服务器的 PostgreSQL 命令行管理器，提供中文数字菜单。
+
+          - 安装和管理 PostgreSQL 实例，创建数据库与应用账号。
+          - 支持单库备份、恢复到新库、日志诊断和命令速查。
+          - 支持 Ubuntu 24.04 LTS 和 Debian 13 上的 APT 本机实例。
+
+          服务器安装命令见 [README](https://github.com/9star-academy/PGReady/blob/$VERSION/README.md)。
+          EOF
+          gh release create "$VERSION" --verify-tag --title "PGReady $VERSION" \
+            --notes-file dist/release-notes.md \
+            dist/pgready-linux-amd64 dist/pgready-linux-arm64 dist/SHA256SUMS dist/install.sh
+      - name: Verify public installer on Linux amd64
+        run: |
+          curl -fsSL --retry 3 "https://github.com/9star-academy/PGReady/releases/download/$VERSION/install.sh" \
+            | bash -s -- "$VERSION"
+          test "$(pgready --version)" = "pgready $VERSION"
+          printf '8\n0\n0\n' | pgready | grep -F '1. 快速上手'
