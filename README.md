@@ -23,46 +23,25 @@
 
 适用于 **Ubuntu 24.04 LTS / Debian 13**，支持 **amd64 / arm64**。SSH 登录后，准备好 Bash、`curl` 和 `sha256sum`，使用 root 或具备 sudo 权限的账号。
 
-### 1. 选择下载线路
+### 1. 安装 PGReady
 
-| 使用场景 | 命令末尾 | 安装脚本、校验文件和程序包的下载顺序 |
-| --- | --- | --- |
-| 国内服务器 | `-- cn` | 镜像优先，下载或校验失败后尝试 GitHub |
-| 海外服务器 | `-- auto` | GitHub 优先，下载或校验失败后尝试镜像 |
-| 仅用 GitHub | `-- direct` | 走 GitHub 直连 |
-
-### 2. 复制并执行
-
-下方命令可直接用于国内服务器。海外服务器把最后一行的 `cn` 换成 `auto`。
+**国内服务器**（镜像优先）
 
 ```bash
-bash -c '
-set -euo pipefail
-export PGREADY_DOWNLOAD_MODE=$1
-u=https://github.com/9star-academy/PGReady/releases/download/v0.1.1/install.sh
-m=${PGREADY_GITHUB_MIRROR:-https://gh-proxy.com}
-[[ "$m" =~ ^https://[a-zA-Z0-9.-]+(:[0-9]+)?(/[a-zA-Z0-9._~/-]*)?$ ]] || { echo "PGREADY_GITHUB_MIRROR 必须为 HTTPS 镜像前缀" >&2; exit 2; }
-while [[ "$m" == */ ]]; do m=${m%/}; done
-f=$(mktemp)
-cleanup() { rm -f -- "$f"; }; trap cleanup EXIT
-get() {
-  curl -q -fsSL --proto "=https" --proto-redir "=https" --connect-timeout 8 --max-time 30 -o "$f" "$1" || return 1
-  [[ $(sha256sum < "$f") == "2c5bf221d1c7858093ef18e24f17271f7f96dad935ec249cab2d8e44849f8489  -" ]] || { echo "安装脚本 SHA-256 校验失败 $1" >&2; return 1; }
-  printf "[PGReady] 安装脚本 %s\n" "$1"
-}
-case "$PGREADY_DOWNLOAD_MODE" in
-  cn) get "$m/$u" || get "$u" ;;
-  auto) get "$u" || get "$m/$u" ;;
-  direct) get "$u" ;;
-  *) echo "下载模式必须为 auto、cn 或 direct" >&2; exit 2 ;;
-esac
-bash "$f" v0.1.1
-' -- cn
+(pgready_bootstrap=$(curl -fsSL https://cdn.jsdelivr.net/gh/9star-academy/PGReady@main/scripts/bootstrap.sh) && PGREADY_DOWNLOAD_MODE=cn bash -c "$pgready_bootstrap")
 ```
 
-安装器自动识别架构、核对 SHA-256 和版本，并把程序安装到 `/usr/local/bin/pgready`。如需更换默认镜像 `https://gh-proxy.com`，可在执行前设置 `PGREADY_GITHUB_MIRROR`。镜像地址须支持「HTTPS 前缀/完整 GitHub URL」格式。
+**国外服务器**（GitHub 优先）
 
-### 3. 验证并打开菜单
+```bash
+(pgready_bootstrap=$(curl -fsSL https://raw.githubusercontent.com/9star-academy/PGReady/main/scripts/bootstrap.sh) && PGREADY_DOWNLOAD_MODE=auto bash -c "$pgready_bootstrap")
+```
+
+`cn` 优先镜像，`auto` 优先 GitHub。安装脚本、校验文件和程序包下载或校验失败时会切换线路。把国外命令中的 `auto` 改成 `direct` 即可仅使用 GitHub。如需更换默认镜像 `https://gh-proxy.com`，可在执行前设置 `PGREADY_GITHUB_MIRROR`。
+
+引导脚本按固定 SHA-256 校验安装器。安装器识别架构、核对程序的 SHA-256 和版本，并安装到 `/usr/local/bin/pgready`。
+
+### 2. 验证并打开菜单
 
 ```bash
 pgready --version
