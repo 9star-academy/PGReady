@@ -21,6 +21,7 @@ import (
 )
 
 const installPath = "/usr/local/bin/pgready"
+const canonicalLatestReleaseURL = "https://api.github.com/repos/9star-academy/PGReady/releases/latest"
 
 func update(ctx context.Context, currentTag string, out, errOut io.Writer) error {
 	if runtime.GOOS != "linux" {
@@ -124,19 +125,67 @@ type stableRelease struct {
 }
 
 func latestRelease(ctx context.Context, client *http.Client, sources []string) (stableRelease, error) {
-	var failures []error
-	for _, source := range sources {
-		if err := ctx.Err(); err != nil {
-			return stableRelease{}, err
-		}
-		release, err := fetchRelease(ctx, client, source)
-		if err == nil {
-			return release, nil
-		}
-		failures = append(failures, fmt.Errorf("%s: %w", source, err))
+	const comparisonWindow = 2 * time.Second
+	if err := ctx.Err(); err != nil {
+		return stableRelease{}, err
 	}
-	if len(failures) == 0 {
+	if len(sources) == 0 {
 		return stableRelease{}, fmt.Errorf("未配置正式版查询地址")
+	}
+	queryCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	type result struct {
+		release   stableRelease
+		err       error
+		canonical bool
+	}
+	results := make(chan result, len(sources))
+	for _, source := range sources {
+		go func() {
+			release, err := fetchRelease(queryCtx, client, source)
+			if err != nil {
+				err = fmt.Errorf("%s: %w", source, err)
+			}
+			results <- result{release: release, err: err, canonical: source == canonicalLatestReleaseURL}
+		}()
+	}
+
+	var best stableRelease
+	var failures []error
+	var deadline <-chan time.Time
+collect:
+	for remaining := len(sources); remaining > 0; remaining-- {
+		select {
+		case <-ctx.Done():
+			return stableRelease{}, ctx.Err()
+		case <-deadline:
+			break collect
+		case result := <-results:
+			if result.err != nil {
+				failures = append(failures, result.err)
+				continue
+			}
+			// A mirror may lag or report a tag that GitHub never released.
+			if result.canonical {
+				best = result.release
+				break collect
+			}
+			// A valid fallback makes it possible to limit the wait for GitHub.
+			if best.Tag == "" && remaining > 1 {
+				timer := time.NewTimer(comparisonWindow)
+				defer timer.Stop()
+				deadline = timer.C
+			}
+			if best.Tag == "" || slices.Compare(result.release.version[:], best.version[:]) > 0 {
+				best = result.release
+			}
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return stableRelease{}, err
+	}
+	if best.Tag != "" {
+		return best, nil
 	}
 	return stableRelease{}, fmt.Errorf("查询 PGReady 最新正式版失败: %w", errors.Join(failures...))
 }

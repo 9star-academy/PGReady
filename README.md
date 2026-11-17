@@ -28,16 +28,16 @@
 **国内服务器**（镜像优先）
 
 ```bash
-(pgready_bootstrap=$(curl -fsSL https://cdn.jsdelivr.net/gh/9star-academy/PGReady@v0.1.5/scripts/bootstrap.sh) && PGREADY_DOWNLOAD_MODE=cn bash -c "$pgready_bootstrap")
+(pgready_bootstrap=$(curl -fsSL https://cdn.jsdelivr.net/gh/9star-academy/PGReady@v0.1.6/scripts/bootstrap.sh) && PGREADY_DOWNLOAD_MODE=cn bash -c "$pgready_bootstrap")
 ```
 
 **国外服务器**（GitHub 优先）
 
 ```bash
-(pgready_bootstrap=$(curl -fsSL https://raw.githubusercontent.com/9star-academy/PGReady/v0.1.5/scripts/bootstrap.sh) && PGREADY_DOWNLOAD_MODE=auto bash -c "$pgready_bootstrap")
+(pgready_bootstrap=$(curl -fsSL https://raw.githubusercontent.com/9star-academy/PGReady/v0.1.6/scripts/bootstrap.sh) && PGREADY_DOWNLOAD_MODE=auto bash -c "$pgready_bootstrap")
 ```
 
-`cn` 优先镜像，`auto` 优先 GitHub。安装脚本、校验文件和程序包下载或校验失败时会切换线路。把国外命令中的 `auto` 改成 `direct` 即可仅使用 GitHub。如需更换默认镜像 `https://gh-proxy.com`，可在执行前设置 `PGREADY_GITHUB_MIRROR`。
+`cn` 优先镜像，`auto` 优先 GitHub。引导脚本和校验文件按顺序尝试下载地址。`v0.1.6` 的安装器会在程序包下载持续偏慢时启动备用线路。把国外命令中的 `auto` 改成 `direct` 即可仅使用 GitHub。如需更换默认镜像 `https://gh-proxy.com`，可在执行前设置 `PGREADY_GITHUB_MIRROR`。
 
 引导脚本先检查 Linux 发行版、版本与 CPU 架构，遇到不支持的环境会提示检测结果并退出。通过检查后，引导脚本按固定 SHA-256 校验安装器，安装器核对程序的 SHA-256 和版本，并将 PGReady 管理工具安装到 `/usr/local/bin/pgready`。PostgreSQL 服务端由下方菜单单独安装。
 
@@ -49,7 +49,7 @@ pgready status
 pgready
 ```
 
-版本应显示 `pgready v0.1.5`。现有安装可运行上面的命令覆盖升级。`pgready status` 会列出 APT 管理的本机实例及其端口和状态。空机可在菜单选择 `2. 安装与版本 → 3. 安装 PostgreSQL`。如果找不到可安装的软件包，先执行 `sudo apt-get update` 刷新软件源索引。
+版本应显示 `pgready v0.1.6`。现有安装可运行上面的命令覆盖升级。`pgready status` 会列出 APT 管理的本机实例及其端口和状态。空机可在菜单选择 `2. 安装与版本 → 3. 安装 PostgreSQL`。如果找不到可安装的软件包，先执行 `sudo apt-get update` 刷新软件源索引。
 
 PGReady 会检查宝塔的 PostgreSQL 服务端程序和数据文件。发现已有程序或数据时会暂停 APT 首装，并在读到 `PG_VERSION` 时提示数据主版本。空占位目录和单独的 `data_directory` 配置文件允许通过首装检查。
 
@@ -64,7 +64,9 @@ pgready --version
 
 更新会查询 GitHub 标记的最新正式版，发现更高版本时自动下载，核对 SHA-256 和版本号后替换 `/usr/local/bin/pgready`。需要写入时会调用 `sudo`。整个操作只更新 PGReady 程序，PostgreSQL 服务无需重启。
 
-国内服务器可用 `PGREADY_DOWNLOAD_MODE=cn pgready update` 优先走镜像。默认的 `auto` 优先直连 GitHub，`direct` 仅使用 GitHub，也可以像安装时一样通过 `PGREADY_GITHUB_MIRROR` 设置镜像。
+从 `v0.1.6` 起，PGReady 会并发检查已配置的发布地址。GitHub 在查询窗口内返回有效版本时，以官方结果为准，其他情况下使用镜像结果。默认从 GitHub 开始下载程序包，首选线路连续低速约 4 秒或失败时会启动镜像。下载过程中显示进度，使用最先通过校验的程序包。
+
+`PGREADY_DOWNLOAD_MODE=cn pgready update` 会优先下载镜像，`direct` 仅使用 GitHub，也可以像安装时一样通过 `PGREADY_GITHUB_MIRROR` 设置镜像。
 
 ## 功能菜单
 

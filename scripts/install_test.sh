@@ -84,4 +84,72 @@ for mode in auto cn direct; do
     [[ $output == "$expected" ]] || fail "$mode 模式的查询地址顺序错误"
 done
 
-printf 'PGReady 安装平台和更新线路检查通过。\n'
+sed '/^main "\$@"$/d' install.sh > "$test_dir/downloads.sh"
+cat > "$test_dir/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+set -eu
+while [[ $# -gt 1 ]]; do
+    if [[ $1 == --output ]]; then
+        file=$2
+        shift 2
+    else
+        shift
+    fi
+done
+printf '%s\n' "$1" >> "$PGREADY_TEST_REQUESTS"
+case "$PGREADY_TEST_TRANSFER:$1" in
+    slow:https://direct.example/*)
+        printf '%s\n' "$$" > "$PGREADY_TEST_SLOW_PID"
+        printf 'partial\n' > "$file"
+        exec sleep 15
+        ;;
+    invalid:https://direct.example/*)
+        printf 'invalid\n' > "$file"
+        ;;
+    slow_manifest:https://direct.example/SHA256SUMS)
+        sleep 5
+        printf 'verified\n' > "$file"
+        ;;
+    mirror_offline:https://direct.example/*)
+        printf 'partial\n' > "$file"
+        sleep 5
+        printf 'verified\n' > "$file"
+        ;;
+    mirror_offline:https://mirror.example/*)
+        exit 1
+        ;;
+    *) printf 'verified\n' > "$file" ;;
+esac
+EOF
+
+assert_download() {
+    local transfer=$1 wanted_requests=$2 filename=${3:-asset} start=$SECONDS
+    local work="$test_dir/$transfer"
+    mkdir "$work"
+    output=$(PATH="$test_dir/bin:$PATH" PGREADY_TEST_TRANSFER="$transfer" \
+        PGREADY_TEST_REQUESTS="$work/requests" PGREADY_TEST_SLOW_PID="$work/pid" \
+        bash -eu -c '
+            source "$1"
+            download_bases=(https://direct.example https://mirror.example)
+            download_pids=("" "")
+            verify() { grep -Fxq verified "$1"; }
+            download_verified "$2/$3" verify
+            verify "$2/$3"
+        ' bash "$test_dir/downloads.sh" "$work" "$filename" 2>&1) || fail "下载场景失败：$transfer"
+    [[ $(wc -l < "$work/requests") -eq $wanted_requests ]] || fail "下载线路数错误：$transfer"
+    if [[ $transfer == slow ]]; then
+        [[ $output == *'已下载'* && $output == *'启用备用下载线路'* ]] || fail '缺少进度或切换提示'
+        (( SECONDS - start < 12 )) || fail '慢线路未及时启用备用线路'
+        if kill -0 "$(cat "$work/pid")" 2>/dev/null; then
+            fail '胜出后慢线路仍在运行'
+        fi
+    fi
+}
+
+assert_download fast 1
+assert_download slow 2
+assert_download invalid 2
+assert_download mirror_offline 2
+assert_download slow_manifest 1 SHA256SUMS
+
+printf 'PGReady 安装平台、更新线路和备用下载检查通过。\n'
