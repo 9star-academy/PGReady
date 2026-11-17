@@ -1,16 +1,39 @@
-# PGReady
+<p align="center">
+  <img src="cmd/pgready/assets/postgresql-elephant.png" width="84" alt="PostgreSQL 的蓝色大象图标">
+</p>
 
-面向 Linux 服务器的 PostgreSQL 命令行管理器。通过 SSH 登录后，输入 `pgready` 打开中文数字菜单，完成 PostgreSQL 安装、实例管理、建库建账号、备份恢复和日常排查。
+<h1 align="center">PGReady</h1>
 
-PGReady 是九星学院的数据库管理工具，菜单交互沿用 [ShellReady](https://github.com/9star-academy/ShellReady) 的数字选择方式。新服务器可以按菜单完成初始化，已有 PostgreSQL 的服务器可以先查看实例，再选择要管理的目标。
+<p align="center"><strong>面向 Linux 服务器的 PostgreSQL 命令行管理器</strong></p>
+<p align="center">通过 SSH 打开中文数字菜单，安装 PostgreSQL、管理实例与账号、备份恢复数据。</p>
 
-首版支持 Ubuntu 24.04 LTS 和 Debian 13 上通过 APT 管理的本机 PostgreSQL 实例。安装和服务操作使用系统权限，管理查询通过本机 Socket 连接到选定实例。
+<p align="center">
+  <a href="#服务器安装">服务器安装</a> ·
+  <a href="#功能菜单">功能菜单</a> ·
+  <a href="https://github.com/9star-academy/PGReady/releases/tag/v0.1.1">v0.1.1 发布</a>
+</p>
+
+<p align="center">
+  <img src="docs/images/pgready-menu.png" width="760" alt="PGReady 在 Ubuntu 上的中文数字菜单，显示当前实例、作者、八项功能和按键提示">
+</p>
+
+<p align="center"><sub>Ubuntu 实跑菜单。大象图标可在 Kitty 和 Ghostty 中显示。</sub></p>
 
 ## 服务器安装
 
-适用于 Ubuntu 24.04 LTS 和 Debian 13。安装器识别 Linux amd64 或 arm64，校验下载后将程序安装到 `/usr/local/bin/pgready`。
+适用于 **Ubuntu 24.04 LTS / Debian 13**，支持 **amd64 / arm64**。SSH 登录后，准备好 Bash、`curl` 和 `sha256sum`，使用 root 或具备 sudo 权限的账号。
 
-**国内服务器**运行以下命令，最后一行的 `cn` 表示镜像优先。**海外服务器**把最后的 `cn` 改为 `auto`。
+### 1. 选择下载线路
+
+| 使用场景 | 命令末尾 | 安装脚本、校验文件和程序包的下载顺序 |
+| --- | --- | --- |
+| 国内服务器 | `-- cn` | 镜像优先，下载或校验失败后尝试 GitHub |
+| 海外服务器 | `-- auto` | GitHub 优先，下载或校验失败后尝试镜像 |
+| 仅用 GitHub | `-- direct` | 走 GitHub 直连 |
+
+### 2. 复制并执行
+
+下方命令可直接用于国内服务器。海外服务器把最后一行的 `cn` 换成 `auto`。
 
 ```bash
 bash -c '
@@ -37,48 +60,24 @@ bash "$f" v0.1.1
 ' -- cn
 ```
 
-| 模式 | 安装脚本、校验文件和二进制的下载顺序 |
-| --- | --- |
-| `auto`（默认） | GitHub 优先，下载或校验失败后尝试镜像 |
-| `cn` | 镜像优先，下载或校验失败后尝试 GitHub |
-| `direct` | 仅使用 GitHub |
+安装器自动识别架构、核对 SHA-256 和版本，并把程序安装到 `/usr/local/bin/pgready`。如需更换默认镜像 `https://gh-proxy.com`，可在执行前设置 `PGREADY_GITHUB_MIRROR`。镜像地址须支持「HTTPS 前缀/完整 GitHub URL」格式。
 
-默认镜像为 `https://gh-proxy.com`。可设置 `PGREADY_GITHUB_MIRROR` 指定支持「HTTPS 前缀/完整 GitHub URL」的镜像。安装入口用固定 SHA-256 校验脚本，安装器按同版本的 `SHA256SUMS` 核对程序包，并检查 `--version`。
-
-执行 `pgready --version` 应显示 `pgready v0.1.1`。输入 `pgready` 打开菜单，新服务器可从「安装与版本」进入 PostgreSQL 安装。
-
-## 从源码构建
-
-在目标 Linux 主机上使用 Go 1.22 或更新版本构建。
+### 3. 验证并打开菜单
 
 ```bash
-go build -o /tmp/pgready ./cmd/pgready
-/tmp/pgready --help
-/tmp/pgready status
-/tmp/pgready
+pgready --version
+pgready status
+pgready
 ```
 
-`status` 通过实例清单显示版本、集群名、端口、服务状态和数据目录。若 APT 缓存缺少可用版本，在目标主机上执行 `sudo apt-get update` 后再选择安装。
+版本应显示 `pgready v0.1.1`。`pgready status` 会列出 APT 管理的本机实例及其端口和状态。空机可在菜单选择 `2. 安装与版本 → 3. 安装 PostgreSQL`。如果找不到可安装的软件包，先执行 `sudo apt-get update` 刷新软件源索引。
 
-## 主菜单
+## 功能菜单
 
-```text
-PGReady · PostgreSQL 管理器
+输入数字并按 Enter。主菜单的 `0` 退出，子菜单的 `0` 返回上一级。
 
-1. 实例与服务
-2. 安装与版本
-3. 数据库与账号
-4. 备份与恢复
-5. 配置与访问
-6. 日志与诊断
-7. 扩展管理
-8. 帮助与命令速查
-0. 退出
-```
-
-输入数字并按 Enter。子菜单中输入 `0` 返回主菜单。选定实例后，菜单顶部显示 PostgreSQL 主版本、集群名、端口和连接状态。
-
-### 1. 实例与服务
+<details>
+<summary><strong>1. 实例与服务</strong> · 切换实例、查看运行状态、启停与重启</summary>
 
 1. **列出与切换实例** — 识别本机已注册的 PostgreSQL 集群，包括已停止的实例。
 2. **查看当前实例** — 显示版本、集群名、端口、数据目录、服务状态和连接就绪情况。指定账号的登录可在「数据库与账号」单独测试。
@@ -86,7 +85,10 @@ PGReady · PostgreSQL 管理器
 4. **停止实例** — 显示目标实例和连接中断提示，确认后停止。
 5. **重启实例** — 确认后重启当前实例，重新检查服务和连接。
 
-### 2. 安装与版本
+</details>
+
+<details>
+<summary><strong>2. 安装与版本</strong> · 安装 PostgreSQL、查看可用版本与补丁</summary>
 
 1. **检查安装环境** — 显示系统版本、软件包来源和已经识别到的 PostgreSQL 实例。
 2. **查看可安装版本** — 列出当前软件源提供的 PostgreSQL 主版本。
@@ -95,7 +97,10 @@ PGReady · PostgreSQL 管理器
 
 后续计划支持应用补丁更新。跨主版本迁移单独设计，包含扩展兼容性检查、备份恢复验证和切换步骤。
 
-### 3. 数据库与账号
+</details>
+
+<details>
+<summary><strong>3. 数据库与账号</strong> · 建库、创建账号、管理连接权限</summary>
 
 1. **列出数据库** — 查看数据库名、所有者和大小。
 2. **创建数据库** — 输入数据库名并指定所有者。
@@ -104,7 +109,10 @@ PGReady · PostgreSQL 管理器
 5. **调整密码与权限** — 为选定角色修改密码，查看、授予或撤销显式 `CONNECT` 权限。实际访问也受 `PUBLIC` 和角色继承影响。
 6. **测试登录** — 通过本机 IPv4 回环地址连接，核对目标实例、数据库和登录角色。
 
-### 4. 备份与恢复
+</details>
+
+<details>
+<summary><strong>4. 备份与恢复</strong> · 单库备份、恢复到新库、核对数据</summary>
 
 1. **备份指定数据库** — 选择来源实例、数据库和保存位置，使用 `pg_dump` 生成归档。
 2. **查看备份** — 查看本地备份文件的路径、时间和大小，使用 `pg_restore --list` 查看归档内容。
@@ -113,7 +121,10 @@ PGReady · PostgreSQL 管理器
 
 首版备份范围为单个数据库。角色和表空间属于实例级对象，需要单独备份。恢复会执行归档中的 SQL，请选择可信来源的备份，并确认目标环境具备所需的角色和扩展。恢复失败时新库会保留。
 
-### 5. 配置与访问
+</details>
+
+<details>
+<summary><strong>5. 配置与访问</strong> · 查看数据目录、端口与客户端认证</summary>
 
 1. **查看目录与配置文件** — 显示数据目录、`postgresql.conf` 和 `pg_hba.conf` 的实际路径。
 2. **查看监听与端口** — 显示端口、监听地址和本地 Socket 目录。
@@ -122,7 +133,10 @@ PGReady · PostgreSQL 管理器
 
 首版提供只读检查。后续计划支持修改指定参数和认证规则，应用前显示变更，应用后用新连接验证。
 
-### 6. 日志与诊断
+</details>
+
+<details>
+<summary><strong>6. 日志与诊断</strong> · 排查慢查询、连接、锁与磁盘</summary>
 
 1. **查看服务日志** — 读取当前实例可定位的日志文件，查看近期启动、连接或认证错误。
 2. **查看慢查询日志** — 检查慢查询日志是否开启，从近期日志中查找达到配置阈值的耗时记录。
@@ -130,14 +144,20 @@ PGReady · PostgreSQL 管理器
 4. **查看锁与阻塞** — 找出正在等待的会话以及阻塞它的会话。
 5. **检查存储空间** — 查看数据库大小，以及数据目录所在文件系统的剩余空间。
 
-### 7. 扩展管理
+</details>
+
+<details>
+<summary><strong>7. 扩展管理</strong> · 查看可用和已启用的扩展</summary>
 
 1. **查看可用扩展** — 查看当前实例可用的扩展及版本。
 2. **查看已启用扩展** — 选择数据库，查看其中已启用的扩展及版本。
 
 首版提供查询。后续计划支持按需安装系统扩展包，并在指定数据库中启用扩展。
 
-### 8. 帮助与命令速查
+</details>
+
+<details>
+<summary><strong>8. 帮助与命令速查</strong> · 连接数据库、查询常用指令、排查连接问题</summary>
 
 1. **快速上手** — 讲解如何选择实例、连接数据库、查看当前连接和退出 `psql`。连接示例使用当前实例的端口等连接信息，并标明需要填写的账号和库名。
 2. **常用命令** — 标明每条命令的输入位置，附上示例和预期结果。
@@ -154,9 +174,27 @@ PGReady · PostgreSQL 管理器
 
 3. **常见问题** — 按服务状态、连接地址与端口、账号认证和数据库权限排查连接失败。
 
-## 首版验收
+</details>
+
+## 开发与验收
+
+<details>
+<summary>从源码构建与验收</summary>
+
+在目标 Linux 主机上使用 Go 1.22 或更新版本构建。
+
+```bash
+go build -o /tmp/pgready ./cmd/pgready
+/tmp/pgready --help
+/tmp/pgready status
+/tmp/pgready
+```
 
 - **本地检查** — 运行 `go test -race ./...` 和 `go vet ./...`。测试覆盖多实例选择、取消与目标核对、SQL 参数转义、归档冲突和恢复失败。
 - **新服务器** — 从 `2` 安装 PostgreSQL，用 `3` 建库和创建应用账号，确认该账号能登录并执行查询。再通过 `4` 备份并恢复到新库，核对原库和恢复库的表及样例数据。
 - **已有两个实例的服务器** — 在 `1` 选中测试实例后执行服务操作，核对选中实例的状态变化，并查询另一个实例确认仍可用。
 - **初次使用 PostgreSQL** — 在 `8` 找到当前实例的连接示例，在 SSH 终端连接，进入 `psql` 后用 `\conninfo` 核对目标。
+
+</details>
+
+九星学院项目 · [tangbaichuan](https://github.com/reedtang666)
